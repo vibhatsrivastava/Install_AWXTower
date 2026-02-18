@@ -1,0 +1,59 @@
+# Logs
+*.log
+/var/log/awx-install.log
+
+# Credentials and sensitive files
+*credentials*.txt
+*password*.txt
+*.pem
+*.key
+*.cert
+*.crt
+awx.conf.local
+
+# Temporary files
+/tmp/awx-*.yaml
+*.tmp
+*.bak
+*.swp
+*~
+
+# Kubernetes configs
+kubeconfig
+*.kubeconfig
+k3s.yaml
+
+# Backup files
+*.backup
+backups/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-*
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+
+# Node modules (if any tooling added)
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test files
+test-*.sh
+*.test
+
+.github/copilot-instructions.md
