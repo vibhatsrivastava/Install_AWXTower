@@ -61,12 +61,19 @@ To access AWX at `http://YOUR_SERVER_IP` (without `:30080`), set up a reverse pr
 # Run after AWX installation
 sudo ./setup_nginx_proxy.sh
 
-# Or with HTTPS for production
+# For internal HTTPS with self-signed certificate (e.g., awx.local)
+sudo ./setup_nginx_proxy.sh \
+  --domain awx.local \
+  --enable-ssl
+
+# For public HTTPS with Let's Encrypt (requires registered domain)
 sudo ./setup_nginx_proxy.sh \
   --domain awx.example.com \
   --email admin@example.com \
   --enable-ssl
 ```
+
+**Note**: The script automatically detects internal domains (`.local`, `.internal`, `.lan`) and uses self-signed certificates. Public domains attempt Let's Encrypt with automatic fallback.
 
 See [Reverse Proxy Setup](#reverse-proxy-setup-optional) for full details.
 
@@ -337,9 +344,25 @@ By default, AWX is accessible on port 30080 (e.g., `http://server-ip:30080`). To
 
 A reverse proxy sits in front of AWX and forwards requests to it, allowing you to:
 - Access AWX on standard HTTP port 80: `http://server-ip` (no port needed!)
-- Enable HTTPS with SSL/TLS certificates
+- Enable HTTPS with SSL/TLS certificates (self-signed or Let's Encrypt)
 - Add an additional security layer
 - Use custom domain names
+
+### SSL Certificate Auto-Detection
+
+The script intelligently selects the appropriate SSL certificate type:
+
+**Internal Domains** (`.local`, `.internal`, `.lan`, `localhost`, IP addresses):
+- ✓ Automatically uses **self-signed SSL certificates**
+- ✓ Valid for 10 years
+- ⚠ Browser will show security warnings (normal for internal use)
+- ℹ Add hostname to client's hosts file for domain-based access
+
+**Public Domains** (registered domains like `awx.example.com`):
+- ✓ Attempts **Let's Encrypt** certificate (free, valid, trusted)
+- ✓ Falls back to self-signed if Let's Encrypt fails
+- ✓ Requires DNS A record pointing to server IP
+- ✓ Automatic certificate renewal
 
 ### Quick Setup
 
@@ -349,10 +372,17 @@ We provide an automated script to set up Nginx reverse proxy:
 # Basic HTTP setup (access via http://server-ip)
 sudo ./setup_nginx_proxy.sh
 
-# With custom AWX port
-sudo ./setup_nginx_proxy.sh --awx-port 30080
+# Internal HTTPS with self-signed certificate (awx.local)
+sudo ./setup_nginx_proxy.sh \
+  --domain awx.local \
+  --enable-ssl
 
-# Enable HTTPS with Let's Encrypt
+# Internal HTTPS with custom domain
+sudo ./setup_nginx_proxy.sh \
+  --domain tower.internal \
+  --enable-ssl
+
+# Public HTTPS with Let's Encrypt (requires registered domain)
 sudo ./setup_nginx_proxy.sh \
   --domain awx.example.com \
   --email admin@example.com \
@@ -362,19 +392,35 @@ sudo ./setup_nginx_proxy.sh \
 ### What the Script Does
 
 1. **Installs Nginx** (if not already installed)
-2. **Configures reverse proxy** to forward port 80 → 30080
+2. **Configures reverse proxy** to forward port 80/443 → 30080
 3. **Sets up WebSocket support** for real-time AWX job updates
 4. **Configures firewall** to allow HTTP (80) and HTTPS (443)
-5. **Optionally installs SSL** with automatic certificate renewal via Let's Encrypt
-6. **Provides access URLs** and management commands
+5. **Auto-detects domain type** (internal vs public)
+6. **Installs appropriate SSL certificate**:
+   - Self-signed for internal domains
+   - Let's Encrypt for public domains (with fallback)
+7. **Provides access URLs** and configuration instructions
 
 ### After Setup
 
 **Access AWX without port numbers:**
 ```
 http://YOUR_SERVER_IP          # HTTP access
-https://your-domain.com        # HTTPS access (if SSL enabled)
+https://awx.local              # Internal HTTPS (self-signed)
+https://awx.example.com        # Public HTTPS (Let's Encrypt)
 ```
+
+**For internal domains (e.g., awx.local):**
+
+Add to client machine's hosts file:
+- **Windows**: `C:\Windows\System32\drivers\etc\hosts`
+- **Linux/Mac**: `/etc/hosts`
+
+```
+192.168.1.100  awx.local
+```
+
+Then access at `https://awx.local` (accept browser security warning for self-signed certificate).
 
 **Useful Nginx commands:**
 ```bash
@@ -394,14 +440,50 @@ nginx -t
 systemctl reload nginx
 ```
 
-### SSL/TLS Setup with Let's Encrypt
+### SSL/TLS Setup
 
-For production use, enable HTTPS with a free SSL certificate:
+#### Option 1: Internal Use (Self-Signed Certificate)
+
+For internal/private networks, use self-signed certificates:
 
 **Requirements:**
-- A registered domain name
-- Domain DNS pointing to your server's IP address
-- Email address for certificate notifications
+- No domain registration needed
+- Choose any internal domain name (`.local`, `.internal`, `.lan`)
+
+**Setup:**
+```bash
+sudo ./setup_nginx_proxy.sh \
+  --domain awx.local \
+  --enable-ssl
+```
+
+**Client Configuration:**
+Add to hosts file on each client machine:
+```
+# Windows: C:\Windows\System32\drivers\etc\hosts
+# Linux/Mac: /etc/hosts
+192.168.1.100  awx.local
+```
+
+**Browser Access:**
+- Navigate to `https://awx.local`
+- Browser will show security warning (this is normal)
+- Click "Advanced" → "Proceed to site" or "Accept Risk"
+
+**Certificate Details:**
+- Valid for 10 years
+- Located at `/etc/nginx/ssl/awx.crt` and `/etc/nginx/ssl/awx.key`
+- Includes server IP and hostname in certificate
+
+#### Option 2: Public Use (Let's Encrypt)
+
+For internet-facing production deployments:
+
+**Requirements:**
+- A registered domain name (e.g., `awx.example.com`)
+- Domain DNS A record pointing to your server's public IP address
+- Email address for certificate expiration notifications
+- Ports 80 and 443 accessible from internet
 
 **Setup:**
 ```bash
@@ -423,6 +505,9 @@ certbot renew --dry-run
 # Manual renewal (if needed)
 certbot renew
 ```
+
+**Automatic Fallback:**
+If Let's Encrypt fails (DNS issues, rate limits, etc.), the script automatically falls back to self-signed certificates.
 
 ### Manual SSL Setup (Alternative)
 
@@ -453,7 +538,12 @@ This keeps AWX running and accessible at `http://server-ip:30080`.
 |------|-------------|
 | `/etc/nginx/sites-available/awx` | Nginx configuration for AWX |
 | `/etc/nginx/sites-enabled/awx` | Symlink to enabled site |
+| `/etc/nginx/ssl/awx.crt` | Self-signed SSL certificate (if used) |
+| `/etc/nginx/ssl/awx.key` | Self-signed SSL private key (if used) |
+| `/etc/letsencrypt/live/<domain>/` | Let's Encrypt certificates (if used) |
 | `/var/log/nginx-awx-proxy.log` | Setup script log |
+| `/var/log/nginx/awx-access.log` | Nginx access log |
+| `/var/log/nginx/awx-error.log` | Nginx error log |
 | `/root/awx-proxy-info.txt` | Access information |
 
 ### Reverse Proxy Options
@@ -463,12 +553,20 @@ Usage: ./setup_nginx_proxy.sh [OPTIONS]
 
 Options:
   -h, --help              Display help message
-  --domain DOMAIN         Domain name for AWX (optional, for SSL)
+  --domain DOMAIN         Domain name for AWX (e.g., awx.local or awx.example.com)
   --email EMAIL           Email for Let's Encrypt SSL certificates
-  --enable-ssl            Enable HTTPS with Let's Encrypt
+  --enable-ssl            Enable HTTPS (auto-detects certificate type)
   --awx-port PORT         AWX NodePort (default: 30080)
   --uninstall             Remove Nginx reverse proxy configuration
   -v, --verbose           Enable verbose output
+
+SSL Certificate Behavior:
+  Internal domains (.local, .internal, .lan, localhost, IP addresses):
+    → Automatically uses self-signed SSL certificate
+  
+  Public domains (registered domains):
+    → Attempts Let's Encrypt certificate
+    → Falls back to self-signed if Let's Encrypt fails
 ```
 
 ### Advanced: Custom Nginx Configuration
@@ -820,7 +918,10 @@ sudo ./install_awx.sh
 # Optional: Setup reverse proxy (run after AWX installation)
 sudo ./setup_nginx_proxy.sh
 
-# Optional: Enable HTTPS
+# Optional: Internal HTTPS with self-signed certificate
+sudo ./setup_nginx_proxy.sh --domain awx.local --enable-ssl
+
+# Optional: Public HTTPS with Let's Encrypt
 sudo ./setup_nginx_proxy.sh --domain awx.example.com --email admin@example.com --enable-ssl
 ```
 

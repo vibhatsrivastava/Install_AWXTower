@@ -90,22 +90,39 @@ Usage: $0 [OPTIONS]
 
 Options:
     -h, --help                  Display this help message
-    --domain DOMAIN             Domain name for AWX (optional, for SSL)
+    --domain DOMAIN             Domain name for AWX (e.g., awx.local or awx.example.com)
     --email EMAIL               Email for Let's Encrypt SSL certificates
-    --enable-ssl                Enable HTTPS with Let's Encrypt
+    --enable-ssl                Enable HTTPS (auto-detects certificate type)
     --awx-port PORT             AWX NodePort (default: ${AWX_NODEPORT})
     --uninstall                 Remove Nginx reverse proxy configuration
     -v, --verbose               Enable verbose output
+
+SSL Certificate Behavior:
+    ${CYAN}Internal Domains${NC} (.local, .internal, .lan, localhost, IP addresses)
+      → Automatically uses self-signed SSL certificate
+      → Valid for 10 years
+      → Browser will show security warnings (this is normal)
+    
+    ${CYAN}Public Domains${NC} (registered domains like awx.example.com)
+      → Attempts Let's Encrypt certificate (free, valid, trusted)
+      → Falls back to self-signed if Let's Encrypt fails
+      → Requires domain DNS pointing to server IP
 
 Examples:
     # Basic HTTP reverse proxy (access via http://SERVER_IP)
     sudo $0
 
-    # With custom AWX port
-    sudo $0 --awx-port 30080
+    # Internal HTTPS with self-signed certificate (awx.local)
+    sudo $0 --domain awx.local --enable-ssl
+    
+    # Internal HTTPS with custom domain
+    sudo $0 --domain tower.internal --enable-ssl
 
-    # Enable HTTPS with domain name
+    # Public HTTPS with Let's Encrypt (requires registered domain)
     sudo $0 --domain awx.example.com --email admin@example.com --enable-ssl
+
+    # Custom AWX port
+    sudo $0 --domain awx.local --awx-port 30080 --enable-ssl
 
     # Uninstall reverse proxy
     sudo $0 --uninstall
@@ -114,11 +131,19 @@ Requirements:
     - Ubuntu 24.04 LTS (64-bit)
     - Root or sudo privileges
     - AWX Tower already installed and running
-    - Domain name (optional, required for SSL)
+    - For public domains: DNS A record pointing to server IP
+    - For internal domains: Add hostname to client's hosts file
 
 After Installation:
-    - Access AWX at: http://YOUR_SERVER_IP (or https://YOUR_DOMAIN if SSL enabled)
-    - No port number needed in the URL!
+    ${GREEN}Internal domains:${NC}
+      - Access AWX at: https://awx.local (or your chosen domain)
+      - Add to client hosts file: SERVER_IP  awx.local
+      - Accept browser security warning for self-signed certificate
+    
+    ${GREEN}Public domains:${NC}
+      - Access AWX at: https://awx.example.com
+      - Valid SSL certificate (no warnings)
+      - Automatic certificate renewal
 
 EOF
     exit 0
@@ -372,48 +397,246 @@ configure_firewall() {
 }
 
 ################################################################################
+# Setup Self-Signed SSL Certificate
+################################################################################
+
+setup_self_signed_ssl() {
+    print_header "Setting Up Self-Signed SSL Certificate"
+
+    # Get server IP
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+    HOSTNAME_FOR_CERT="${DOMAIN_NAME:-awx.local}"
+
+    # Create SSL directory
+    print_step "Creating SSL directory..."
+    mkdir -p /etc/nginx/ssl
+    chmod 755 /etc/nginx/ssl
+    print_success "SSL directory created"
+
+    # Generate self-signed certificate
+    print_step "Generating self-signed SSL certificate for ${HOSTNAME_FOR_CERT}..."
+    log "Generating SSL certificate with CN=${HOSTNAME_FOR_CERT}, IP=${SERVER_IP}"
+
+    openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
+        -keyout /etc/nginx/ssl/awx.key \
+        -out /etc/nginx/ssl/awx.crt \
+        -subj "/CN=${HOSTNAME_FOR_CERT}/O=AWX Internal/C=US" \
+        -addext "subjectAltName=DNS:${HOSTNAME_FOR_CERT},DNS:localhost,DNS:$(hostname),IP:${SERVER_IP}" 2>> "${LOG_FILE}"
+
+    if [ $? -eq 0 ]; then
+        chmod 600 /etc/nginx/ssl/awx.key
+        chmod 644 /etc/nginx/ssl/awx.crt
+        print_success "Self-signed SSL certificate generated successfully"
+        log "SSL certificate created at /etc/nginx/ssl/ (valid for 10 years)"
+    else
+        print_error "Failed to generate SSL certificate"
+        log "ERROR: SSL certificate generation failed"
+        return 1
+    fi
+
+    # Update Nginx configuration for HTTPS
+    print_step "Updating Nginx configuration for HTTPS..."
+    
+    # Backup existing configuration
+    if [[ -f /etc/nginx/sites-available/awx ]]; then
+        cp /etc/nginx/sites-available/awx "/etc/nginx/sites-available/awx.backup.$(date +%Y%m%d_%H%M%S)"
+    fi
+
+    # Determine server_name
+    if [[ -n "$DOMAIN_NAME" ]]; then
+        SERVER_NAME="$DOMAIN_NAME"
+    else
+        SERVER_NAME="_"  # Accept all hostnames
+    fi
+
+    # Create HTTPS-enabled configuration
+    cat > /etc/nginx/sites-available/awx <<EOF
+# Nginx Reverse Proxy Configuration for AWX Tower with Self-Signed SSL
+# Generated: $(date)
+# Proxies requests from ports 80/443 to AWX NodePort ${AWX_NODEPORT}
+
+# HTTP server - redirect to HTTPS
+server {
+    listen 80;
+    server_name ${SERVER_NAME};
+    
+    # Redirect all HTTP requests to HTTPS
+    return 301 https://\$host\$request_uri;
+}
+
+# HTTPS server
+server {
+    listen 443 ssl http2;
+    server_name ${SERVER_NAME};
+    
+    # SSL certificate paths (self-signed)
+    ssl_certificate /etc/nginx/ssl/awx.crt;
+    ssl_certificate_key /etc/nginx/ssl/awx.key;
+    
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    
+    # Increase buffer sizes for AWX
+    proxy_buffer_size 128k;
+    proxy_buffers 4 256k;
+    proxy_busy_buffers_size 256k;
+    
+    # Increase body size limit for file uploads
+    client_max_body_size 100M;
+    
+    # Logging
+    access_log /var/log/nginx/awx-access.log;
+    error_log /var/log/nginx/awx-error.log;
+    
+    # Main location - proxy to AWX
+    location / {
+        proxy_pass http://localhost:${AWX_NODEPORT};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # WebSocket support (for AWX live updates and job output)
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Increase timeouts for long-running jobs
+        proxy_connect_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        
+        # Disable buffering for real-time job output
+        proxy_buffering off;
+    }
+    
+    # Health check endpoint
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+}
+EOF
+
+    print_success "Nginx HTTPS configuration created"
+
+    # Test and reload Nginx
+    print_step "Testing Nginx configuration..."
+    if nginx -t >> "${LOG_FILE}" 2>&1; then
+        print_success "Nginx configuration is valid"
+        print_step "Reloading Nginx..."
+        systemctl reload nginx
+        print_success "Nginx reloaded with HTTPS enabled"
+    else
+        print_error "Nginx configuration test failed"
+        nginx -t
+        return 1
+    fi
+
+    print_success "Self-signed SSL setup completed"
+    return 0
+}
+
+################################################################################
 # Setup SSL with Let's Encrypt
 ################################################################################
 
 setup_ssl() {
-    print_header "Setting Up SSL with Let's Encrypt"
+    print_header "Setting Up SSL Certificate"
+
+    # Check if domain is internal/local
+    print_step "Validating domain configuration..."
+    log "Checking domain: ${DOMAIN_NAME}"
+
+    # Detect internal/local/reserved domains
+    if [[ "${DOMAIN_NAME}" =~ \.local$ ]] || \
+       [[ "${DOMAIN_NAME}" =~ \.internal$ ]] || \
+       [[ "${DOMAIN_NAME}" =~ \.lan$ ]] || \
+       [[ "${DOMAIN_NAME}" == "localhost" ]] || \
+       [[ "${DOMAIN_NAME}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+
+        print_warning "Domain '${DOMAIN_NAME}' is internal/reserved"
+        print_info "Let's Encrypt cannot issue certificates for internal domains"
+        print_info "Using self-signed certificate instead..."
+        log "Internal domain detected, falling back to self-signed certificate"
+
+        # Use self-signed certificate for internal domains
+        setup_self_signed_ssl
+        return $?
+    fi
+
+    # For public domains, proceed with Let's Encrypt
+    print_info "Public domain detected: ${DOMAIN_NAME}"
+    print_info "Attempting Let's Encrypt certificate..."
+    log "Public domain detected, proceeding with Let's Encrypt"
 
     # Install Certbot
     print_step "Installing Certbot..."
+    log "Installing certbot and python3-certbot-nginx"
     if ! command -v certbot &> /dev/null; then
-        apt-get install -y -qq certbot python3-certbot-nginx > /dev/null 2>&1
-        print_success "Certbot installed"
+        apt-get install -y -qq certbot python3-certbot-nginx >> "${LOG_FILE}" 2>&1
+        if [ $? -eq 0 ]; then
+            print_success "Certbot installed"
+            log "Certbot installation successful"
+        else
+            print_error "Failed to install Certbot"
+            log "ERROR: Certbot installation failed"
+            return 1
+        fi
     else
         print_info "Certbot already installed"
+        log "Certbot already present on system"
     fi
 
-    # Obtain SSL certificate
+    # Obtain certificate
     print_step "Obtaining SSL certificate for ${DOMAIN_NAME}..."
     print_info "This will communicate with Let's Encrypt servers"
-    
+    log "Running certbot for domain ${DOMAIN_NAME} with email ${EMAIL_ADDRESS}"
+
     if certbot --nginx \
         --non-interactive \
         --agree-tos \
         --email "$EMAIL_ADDRESS" \
         --domain "$DOMAIN_NAME" \
-        --redirect; then
-        print_success "SSL certificate obtained and configured"
+        --redirect >> "${LOG_FILE}" 2>&1; then
+        print_success "SSL certificate obtained successfully"
+        log "Let's Encrypt certificate obtained for ${DOMAIN_NAME}"
+
+        # Test auto-renewal
+        print_step "Testing certificate auto-renewal..."
+        if certbot renew --dry-run >> "${LOG_FILE}" 2>&1; then
+            print_success "Certificate auto-renewal is configured"
+            log "Certbot auto-renewal test passed"
+        else
+            print_warning "Auto-renewal test failed, but certificate is installed"
+            log "WARNING: Certbot auto-renewal test failed"
+        fi
+
+        print_success "Let's Encrypt SSL setup completed"
+        log "Let's Encrypt setup completed successfully"
     else
-        print_error "Failed to obtain SSL certificate"
-        print_info "Make sure your domain points to this server's IP address"
-        print_info "You can try again later with: certbot --nginx -d $DOMAIN_NAME"
-        exit 1
+        print_error "Failed to obtain Let's Encrypt certificate"
+        log "ERROR: Let's Encrypt certificate request failed"
+        print_warning "Falling back to self-signed certificate..."
+        log "Falling back to self-signed certificate"
+
+        # Fallback to self-signed certificate
+        setup_self_signed_ssl
+        return $?
     fi
 
-    # Test auto-renewal
-    print_step "Testing certificate auto-renewal..."
-    if certbot renew --dry-run > /dev/null 2>&1; then
-        print_success "Certificate auto-renewal is configured"
-    else
-        print_warning "Auto-renewal test failed, but certificate is installed"
-    fi
-
-    print_success "SSL setup completed"
+    return 0
 }
 
 ################################################################################
@@ -426,8 +649,14 @@ display_access_info() {
     # Get server IP
     SERVER_IP=$(hostname -I | awk '{print $1}')
 
-    # Determine access URL
+    # Determine certificate type and access URL
+    CERT_TYPE="None"
     if [[ "$ENABLE_SSL" == "true" ]]; then
+        if [[ -f /etc/nginx/ssl/awx.crt ]]; then
+            CERT_TYPE="Self-Signed"
+        elif [[ -f /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem ]]; then
+            CERT_TYPE="Let's Encrypt"
+        fi
         ACCESS_URL="https://${DOMAIN_NAME}"
         PROTOCOL="HTTPS"
     elif [[ -n "$DOMAIN_NAME" ]]; then
@@ -436,6 +665,15 @@ display_access_info() {
     else
         ACCESS_URL="http://${SERVER_IP}"
         PROTOCOL="HTTP"
+    fi
+
+    # Determine if internal domain
+    IS_INTERNAL_DOMAIN=false
+    if [[ "${DOMAIN_NAME}" =~ \\.local$ ]] || \
+       [[ "${DOMAIN_NAME}" =~ \\.internal$ ]] || \
+       [[ "${DOMAIN_NAME}" =~ \\.lan$ ]] || \
+       [[ "${DOMAIN_NAME}" == "localhost" ]]; then
+        IS_INTERNAL_DOMAIN=true
     fi
 
     # Save access info to file
@@ -449,11 +687,12 @@ Access URL:
   ${ACCESS_URL}
   
 Alternative access (by IP):
-  http://${SERVER_IP}
+  ${PROTOCOL,,}://${SERVER_IP}
 
 Configuration:
   - Nginx reverse proxy: Active
   - Protocol: ${PROTOCOL}
+  - SSL Certificate: ${CERT_TYPE}
   - AWX Backend Port: ${AWX_NODEPORT}
   - Domain: ${DOMAIN_NAME:-None (IP-based access)}
 
@@ -465,20 +704,54 @@ Nginx Commands:
   systemctl reload nginx
   
   # View access logs
-  tail -f /var/log/nginx/access.log
+  tail -f /var/log/nginx/awx-access.log
   
   # View error logs
-  tail -f /var/log/nginx/error.log
+  tail -f /var/log/nginx/awx-error.log
   
   # Test configuration
   nginx -t
 
-SSL Certificate (if enabled):
-  # Renew certificate manually
-  certbot renew
+SSL Certificate Information:
+  - Type: ${CERT_TYPE}
+EOF
+
+    if [[ "$CERT_TYPE" == "Self-Signed" ]]; then
+        cat >> "$INFO_FILE" <<EOF
+  - Certificate: /etc/nginx/ssl/awx.crt
+  - Private Key: /etc/nginx/ssl/awx.key
+  - Valid for: 10 years
   
-  # Check certificate status
-  certbot certificates
+  Note: Browsers will show security warnings for self-signed certificates.
+  This is normal for internal installations. Click 'Advanced' and proceed.
+EOF
+        
+        if $IS_INTERNAL_DOMAIN; then
+            cat >> "$INFO_FILE" <<EOF
+  
+  Add this to client hosts file to use domain name:
+    Windows: C:\\Windows\\System32\\drivers\\etc\\hosts
+    Linux/Mac: /etc/hosts
+    
+    ${SERVER_IP}  ${DOMAIN_NAME}
+EOF
+        fi
+    elif [[ "$CERT_TYPE" == "Let's Encrypt" ]]; then
+        cat >> "$INFO_FILE" <<EOF
+  - Certificate: /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem
+  - Private Key: /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem
+  - Auto-renewal: Enabled
+  
+  Renewal Commands:
+    # Renew certificate manually
+    certbot renew
+    
+    # Check certificate status
+    certbot certificates
+EOF
+    fi
+
+    cat >> "$INFO_FILE" <<EOF
 
 Configuration Files:
   - Nginx config: /etc/nginx/sites-available/awx
@@ -495,26 +768,46 @@ EOF
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}\n"
 
     echo -e "${CYAN}Access AWX Tower at:${NC}"
-    echo -e "  ${YELLOW}${ACCESS_URL}${NC}\n"
-
-    if [[ -z "$DOMAIN_NAME" ]]; then
-        echo -e "${BLUE}ℹ ${NC} ${BLUE}No port number needed! Access directly via your server IP.${NC}\n"
+    echo -e "  ${YELLOW}${ACCESS_URL}${NC}"
+    
+    if [[ -n "$DOMAIN_NAME" ]]; then
+        echo -e "  ${YELLOW}${PROTOCOL,,}://${SERVER_IP}${NC} ${BLUE}(alternative)${NC}\n"
+    else
+        echo -e "${BLUE}ℹ  No port number needed! Access directly via your server IP.${NC}\n"
     fi
 
+    # SSL-specific information
     if [[ "$ENABLE_SSL" == "true" ]]; then
-        echo -e "${GREEN}✓${NC} ${GREEN}HTTPS is enabled with automatic certificate renewal${NC}\n"
+        if [[ "$CERT_TYPE" == "Self-Signed" ]]; then
+            echo -e "${GREEN}✓${NC} ${GREEN}HTTPS enabled with self-signed SSL certificate${NC}\n"
+            echo -e "${YELLOW}⚠  Browser Security Warning:${NC}"
+            echo -e "   Your browser will show a security warning (self-signed certificate)"
+            echo -e "   This is ${GREEN}normal for internal installations${NC}"
+            echo -e "   Click ${CYAN}'Advanced'${NC} → ${CYAN}'Proceed to site'${NC} to continue\n"
+            
+            if $IS_INTERNAL_DOMAIN; then
+                echo -e "${CYAN}💡 To use domain name, add to client machines:${NC}"
+                echo -e "   ${MAGENTA}Windows:${NC} ${YELLOW}C:\\Windows\\System32\\drivers\\etc\\hosts${NC}"
+                echo -e "   ${MAGENTA}Linux/Mac:${NC} ${YELLOW}/etc/hosts${NC}"
+                echo -e "   ${BLUE}${SERVER_IP}  ${DOMAIN_NAME}${NC}\n"
+            fi
+        elif [[ "$CERT_TYPE" == "Let's Encrypt" ]]; then
+            echo -e "${GREEN}✓${NC} ${GREEN}HTTPS enabled with valid Let's Encrypt certificate${NC}"
+            echo -e "${GREEN}✓${NC} ${GREEN}Automatic certificate renewal configured${NC}\n"
+        fi
     fi
 
     echo -e "${CYAN}Additional Information:${NC}"
     echo -e "  Server IP: ${YELLOW}${SERVER_IP}${NC}"
     echo -e "  Backend Port: ${YELLOW}${AWX_NODEPORT}${NC}"
+    echo -e "  SSL Certificate: ${YELLOW}${CERT_TYPE}${NC}"
     echo -e "  Configuration: ${YELLOW}/etc/nginx/sites-available/awx${NC}"
     echo -e "  Info saved to: ${YELLOW}${INFO_FILE}${NC}\n"
 
-    print_info "Nginx is now proxying requests from port 80 to AWX on port ${AWX_NODEPORT}"
+    print_info "Nginx is now proxying requests to AWX on port ${AWX_NODEPORT}"
     
-    if [[ "$ENABLE_SSL" != "true" && -n "$DOMAIN_NAME" ]]; then
-        echo -e "\n${YELLOW}💡 Tip:${NC} Enable HTTPS by running:"
+    if [[ "$ENABLE_SSL" != "true" && -n "$DOMAIN_NAME" ]] && ! $IS_INTERNAL_DOMAIN; then
+        echo -e "\n${YELLOW}💡 Tip:${NC} Enable HTTPS with Let's Encrypt by running:"
         echo -e "  ${CYAN}sudo certbot --nginx -d ${DOMAIN_NAME}${NC}\n"
     fi
 }
