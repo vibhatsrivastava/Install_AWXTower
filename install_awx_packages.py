@@ -236,20 +236,22 @@ class AWXPackageInstaller:
         """
         self.print_info(f"Bootstrapping pip in '{pod_name}'...")
 
-        # Download and install pip using get-pip.py
+        # Download and install pip using get-pip.py with --user flag for non-root containers
         bootstrap_cmd = [
             "kubectl", "exec",
             "-n", self.namespace,
             pod_name,
             "--",
             "sh", "-c",
-            "curl -sS https://bootstrap.pypa.io/get-pip.py | python3"
+            "curl -sS https://bootstrap.pypa.io/get-pip.py | python3 - --user"
         ]
 
         returncode, stdout, stderr = self.run_command(bootstrap_cmd)
 
         if returncode == 0:
             self.print_success(f"Successfully bootstrapped pip in '{pod_name}'")
+            if self.verbose and stdout:
+                print(stdout)
             return True
         else:
             self.print_error(f"Failed to bootstrap pip in '{pod_name}'")
@@ -277,7 +279,8 @@ class AWXPackageInstaller:
                 return False
 
         # Build pip install command using python3 -m pip (more reliable in containers)
-        pip_cmd = ["python3", "-m", "pip", "install"]
+        # Use --user flag for non-root containers
+        pip_cmd = ["python3", "-m", "pip", "install", "--user"]
         
         if upgrade:
             pip_cmd.append("--upgrade")
