@@ -902,12 +902,14 @@ This will:
 ### Main Scripts
 - **`install_awx.sh`** - Main AWX installation script (K3s + AWX Operator)
 - **`setup_nginx_proxy.sh`** - Optional Nginx reverse proxy setup for port-free access
+- **`install_awx_packages.py`** - Python package installer for AWX containers
 - **`awx.conf`** - Configuration template for customizing installation
 
 ### Documentation
 - **`README.md`** - This file - complete installation and usage guide
 - **`QUICKSTART.md`** - Step-by-step first-time user workflow
 - **`TROUBLESHOOTING.md`** - Common issues and debugging commands
+- **`PACKAGE_INSTALLATION.md`** - Guide for installing Python packages inside AWX containers
 - **`CHANGELOG.md`** - Version history and changes
 
 ### Quick Usage

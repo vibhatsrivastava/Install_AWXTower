@@ -203,6 +203,60 @@ class AWXPackageInstaller:
 
         return pods
 
+    def check_pip_in_pod(self, pod_name: str) -> bool:
+        """
+        Check if pip is available in a pod.
+
+        Args:
+            pod_name: Name of the pod
+
+        Returns:
+            True if pip is available, False otherwise
+        """
+        kubectl_cmd = [
+            "kubectl", "exec",
+            "-n", self.namespace,
+            pod_name,
+            "--",
+            "python3", "-m", "pip", "--version"
+        ]
+
+        returncode, stdout, stderr = self.run_command(kubectl_cmd)
+        return returncode == 0
+
+    def bootstrap_pip_in_pod(self, pod_name: str) -> bool:
+        """
+        Install pip in a pod that doesn't have it.
+
+        Args:
+            pod_name: Name of the pod
+
+        Returns:
+            True if successful, False otherwise
+        """
+        self.print_info(f"Bootstrapping pip in '{pod_name}'...")
+
+        # Download and install pip using get-pip.py
+        bootstrap_cmd = [
+            "kubectl", "exec",
+            "-n", self.namespace,
+            pod_name,
+            "--",
+            "sh", "-c",
+            "curl -sS https://bootstrap.pypa.io/get-pip.py | python3"
+        ]
+
+        returncode, stdout, stderr = self.run_command(bootstrap_cmd)
+
+        if returncode == 0:
+            self.print_success(f"Successfully bootstrapped pip in '{pod_name}'")
+            return True
+        else:
+            self.print_error(f"Failed to bootstrap pip in '{pod_name}'")
+            if stderr:
+                print(stderr, file=sys.stderr)
+            return False
+
     def install_packages_in_pod(self, pod_name: str, packages: List[str], 
                                 upgrade: bool = False) -> bool:
         """
@@ -216,6 +270,12 @@ class AWXPackageInstaller:
         Returns:
             True if successful, False otherwise
         """
+        # Check if pip is available, bootstrap if needed
+        if not self.check_pip_in_pod(pod_name):
+            self.print_warning(f"pip not found in '{pod_name}', bootstrapping...")
+            if not self.bootstrap_pip_in_pod(pod_name):
+                return False
+
         # Build pip install command using python3 -m pip (more reliable in containers)
         pip_cmd = ["python3", "-m", "pip", "install"]
         
