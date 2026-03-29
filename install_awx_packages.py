@@ -216,8 +216,8 @@ class AWXPackageInstaller:
         Returns:
             True if successful, False otherwise
         """
-        # Build pip install command
-        pip_cmd = ["pip3", "install"]
+        # Build pip install command using python3 -m pip (more reliable in containers)
+        pip_cmd = ["python3", "-m", "pip", "install"]
         
         if upgrade:
             pip_cmd.append("--upgrade")
@@ -259,7 +259,7 @@ class AWXPackageInstaller:
             "-n", self.namespace,
             pod_name,
             "--",
-            "pip3", "list", "--format", "columns"
+            "python3", "-m", "pip", "list", "--format", "columns"
         ]
 
         returncode, stdout, stderr = self.run_command(kubectl_cmd)
