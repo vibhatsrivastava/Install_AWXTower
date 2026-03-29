@@ -213,12 +213,14 @@ class AWXPackageInstaller:
         Returns:
             True if pip is available, False otherwise
         """
+        # Check standard location first, then /tmp/.local
         kubectl_cmd = [
             "kubectl", "exec",
             "-n", self.namespace,
             pod_name,
             "--",
-            "python3", "-m", "pip", "--version"
+            "sh", "-c",
+            "python3 -m pip --version 2>/dev/null || (export PYTHONUSERBASE=/tmp/.local && python3 -m pip --version)"
         ]
 
         returncode, stdout, stderr = self.run_command(kubectl_cmd)
@@ -236,14 +238,29 @@ class AWXPackageInstaller:
         """
         self.print_info(f"Bootstrapping pip in '{pod_name}'...")
 
-        # Download and install pip using get-pip.py with --user flag for non-root containers
+        # First, try to create the .local directory structure
+        mkdir_cmd = [
+            "kubectl", "exec",
+            "-n", self.namespace,
+            pod_name,
+            "--",
+            "sh", "-c",
+            "mkdir -p ~/.local/lib ~/.local/bin 2>/dev/null || mkdir -p /tmp/.local/lib /tmp/.local/bin"
+        ]
+
+        returncode, stdout, stderr = self.run_command(mkdir_cmd)
+        if returncode != 0:
+            self.print_warning(f"Could not create standard directories, using /tmp")
+
+        # Try installing pip with --user first, fallback to /tmp if that fails
         bootstrap_cmd = [
             "kubectl", "exec",
             "-n", self.namespace,
             pod_name,
             "--",
             "sh", "-c",
-            "curl -sS https://bootstrap.pypa.io/get-pip.py | python3 - --user"
+            "curl -sS https://bootstrap.pypa.io/get-pip.py | python3 - --user 2>/dev/null || "
+            "(export PYTHONUSERBASE=/tmp/.local && curl -sS https://bootstrap.pypa.io/get-pip.py | python3 - --user)"
         ]
 
         returncode, stdout, stderr = self.run_command(bootstrap_cmd)
@@ -278,14 +295,19 @@ class AWXPackageInstaller:
             if not self.bootstrap_pip_in_pod(pod_name):
                 return False
 
-        # Build pip install command using python3 -m pip (more reliable in containers)
-        # Use --user flag for non-root containers
-        pip_cmd = ["python3", "-m", "pip", "install", "--user"]
+        # Build pip install command
+        pip_args = ["install", "--user"]
         
         if upgrade:
-            pip_cmd.append("--upgrade")
+            pip_args.append("--upgrade")
         
-        pip_cmd.extend(packages)
+        pip_args.extend(packages)
+        
+        # Construct the command - try standard location first, fallback to /tmp
+        pip_cmd_str = f"python3 -m pip {' '.join(pip_args)}"
+        fallback_cmd_str = f"export PYTHONUSERBASE=/tmp/.local && {pip_cmd_str}"
+        
+        full_cmd = f"{pip_cmd_str} 2>/dev/null || {fallback_cmd_str}"
 
         # Execute in pod
         kubectl_cmd = [
@@ -293,7 +315,8 @@ class AWXPackageInstaller:
             "-n", self.namespace,
             pod_name,
             "--",
-            *pip_cmd
+            "sh", "-c",
+            full_cmd
         ]
 
         self.print_info(f"Installing in pod '{pod_name}'...")
@@ -317,12 +340,15 @@ class AWXPackageInstaller:
         Args:
             pod_name: Name of the pod
         """
+        # Try standard location first, then /tmp/.local
         kubectl_cmd = [
             "kubectl", "exec",
             "-n", self.namespace,
             pod_name,
             "--",
-            "python3", "-m", "pip", "list", "--format", "columns"
+            "sh", "-c",
+            "python3 -m pip list --format columns 2>/dev/null || "
+            "(export PYTHONUSERBASE=/tmp/.local && python3 -m pip list --format columns)"
         ]
 
         returncode, stdout, stderr = self.run_command(kubectl_cmd)
