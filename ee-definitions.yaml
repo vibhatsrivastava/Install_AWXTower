@@ -1,0 +1,34 @@
+---
+# AWX Execution Environment Definitions
+# This file defines Execution Environments to build, load to K3s, and register in AWX
+# 
+# Configuration: Customize settings before running manage_awx_ee.sh
+# Usage: ./manage_awx_ee.sh --build-all --definitions ee-definitions.yaml
+#
+# See examples/ee-definitions-sample.yaml for working examples
+
+# Global defaults (applied to all EEs unless overridden)
+defaults:
+  organization: 1  # Default AWX organization ID
+  container_runtime: podman  # 'podman' or 'docker'
+  load_to_k3s: true  # Auto-load to K3s containerd after build
+  register_in_awx: true  # Auto-register in AWX after load
+
+# Execution Environment definitions
+# Each entry defines one EE to build and manage
+execution_environments:
+  # Example entry - customize or replace with your own
+  - name: "My Custom EE"
+    description: "Custom execution environment with required collections and packages"
+    ee_file: "path/to/execution-environment.yml"  # Path to ansible-builder definition
+    image_tag: "my-custom-ee:latest"  # Container image tag
+    organization: 1  # AWX organization ID
+    enabled: true  # Set to false to skip during batch operations
+  
+  # Add more EE definitions here
+  # - name: "Another EE"
+  #   description: "Description of this EE"
+  #   ee_file: "path/to/another-ee.yml"
+  #   image_tag: "another-ee:1.0"
+  #   organization: 1
+  #   enabled: true

@@ -1,0 +1,45 @@
+---
+# AWX Execution Environment Definitions
+# This file defines multiple EEs to build, load, and register in AWX
+# Usage: ./manage_awx_ee.sh --build-all --definitions examples/ee-definitions-sample.yaml
+
+# Global defaults (optional)
+defaults:
+  organization: 1  # Default organization ID in AWX
+  container_runtime: podman  # podman or docker
+  load_to_k3s: true  # Automatically load to K3s containerd after build
+  register_in_awx: true  # Automatically register in AWX after load
+
+# Execution Environment definitions
+execution_environments:
+  # Minimal EE - basic Ansible with no extras
+  - name: "AWX EE Minimal"
+    description: "Minimal execution environment with only ansible-core"
+    ee_file: "examples/ee-minimal.yml"
+    image_tag: "awx-ee-minimal:latest"
+    organization: 1
+    enabled: true
+  
+  # Collections EE - includes common Ansible collections
+  - name: "AWX EE Collections"
+    description: "Execution environment with community.general, ansible.posix, and network collections"
+    ee_file: "examples/ee-collections.yml"
+    image_tag: "awx-ee-collections:latest"
+    organization: 1
+    enabled: true
+  
+  # Python Dependencies EE - for network automation
+  - name: "AWX EE Network Automation"
+    description: "Execution environment with netmiko, paramiko, and network automation libraries"
+    ee_file: "examples/ee-python-deps.yml"
+    image_tag: "awx-ee-network:latest"
+    organization: 1
+    enabled: true
+  
+  # Disabled example - will be skipped during batch processing
+  - name: "AWX EE Custom"
+    description: "Custom execution environment (disabled)"
+    ee_file: "examples/ee-custom.yml"
+    image_tag: "awx-ee-custom:latest"
+    organization: 1
+    enabled: false

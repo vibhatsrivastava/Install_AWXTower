@@ -907,6 +907,7 @@ This will:
 ### Documentation
 - **`README.md`** - This file - complete installation and usage guide
 - **`QUICKSTART.md`** - Step-by-step first-time user workflow
+- **`EE_MANAGEMENT.md`** - Execution Environment build and management guide
 - **`TROUBLESHOOTING.md`** - Common issues and debugging commands
 - **`CHANGELOG.md`** - Version history and changes
 
@@ -923,6 +924,10 @@ sudo ./setup_nginx_proxy.sh --domain awx.local --enable-ssl
 
 # Optional: Public HTTPS with Let's Encrypt
 sudo ./setup_nginx_proxy.sh --domain awx.example.com --email admin@example.com --enable-ssl
+
+# Optional: Build and manage custom Execution Environments
+sudo ./manage_awx_ee.sh --build --ee-file examples/ee-minimal.yml --tag my-ee:latest
+sudo ./manage_awx_ee.sh --list
 ```
 
 ## Resources

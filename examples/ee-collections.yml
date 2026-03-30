@@ -1,0 +1,31 @@
+# AWX Execution Environment with Ansible Collections
+# Includes common community collections for extended functionality
+
+version: 3
+
+images:
+  base_image:
+    name: 'quay.io/centos/centos:stream9'
+
+dependencies:
+  ansible_core:
+    package_pip: ansible-core>=2.15,<2.16
+  ansible_runner:
+    package_pip: ansible-runner
+  
+  # Install Ansible collections from Galaxy
+  galaxy: requirements.yml
+  
+  # System packages required by collections
+  system: |
+    git-core [platform:rpm]
+    python3-devel [platform:rpm]
+    gcc [platform:rpm]
+
+# Set writable HOME directory for non-root user
+# Required for ansible-galaxy and collection operations
+additional_build_steps:
+  append_base:
+    - ENV HOME=/tmp
+    - ENV TMPDIR=/tmp
+    - ENV ANSIBLE_LOCAL_TEMP=/tmp/.ansible/tmp

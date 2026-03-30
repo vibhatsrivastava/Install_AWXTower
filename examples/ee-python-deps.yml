@@ -1,0 +1,36 @@
+# AWX Execution Environment with Python Dependencies
+# Includes Python packages for network automation and API integrations
+
+version: 3
+
+images:
+  base_image:
+    name: 'quay.io/centos/centos:stream9'
+
+dependencies:
+  ansible_core:
+    package_pip: ansible-core>=2.15,<2.16
+  ansible_runner:
+    package_pip: ansible-runner
+  
+  # Python packages required by playbooks
+  python: |
+    netmiko>=4.1.0
+    jinja2>=3.1.0
+    requests>=2.28.0
+    pyyaml>=6.0
+  
+  # System packages required by Python dependencies
+  system: |
+    git-core [platform:rpm]
+    python3-devel [platform:rpm]
+    gcc [platform:rpm]
+    openssl-devel [platform:rpm]
+
+# Set writable HOME directory for non-root user
+# Required for ansible-galaxy and collection operations
+additional_build_steps:
+  append_base:
+    - ENV HOME=/tmp
+    - ENV TMPDIR=/tmp
+    - ENV ANSIBLE_LOCAL_TEMP=/tmp/.ansible/tmp

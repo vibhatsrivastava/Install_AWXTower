@@ -1,0 +1,23 @@
+# Minimal AWX Execution Environment
+# This creates a basic EE with only ansible-core and ansible-runner
+# Suitable for simple playbooks without additional dependencies
+
+version: 3
+
+images:
+  base_image:
+    name: 'quay.io/centos/centos:stream9'
+
+dependencies:
+  ansible_core:
+    package_pip: ansible-core>=2.15,<2.16
+  ansible_runner:
+    package_pip: ansible-runner
+
+# Set writable HOME directory for non-root user
+# Required for ansible-galaxy and collection operations
+additional_build_steps:
+  append_base:
+    - ENV HOME=/tmp
+    - ENV TMPDIR=/tmp
+    - ENV ANSIBLE_LOCAL_TEMP=/tmp/.ansible/tmp

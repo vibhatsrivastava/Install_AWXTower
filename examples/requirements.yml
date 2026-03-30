@@ -1,0 +1,20 @@
+---
+# Ansible Galaxy Collections Requirements
+# Used by ee-collections.yml example
+
+collections:
+  # General utilities and modules
+  - name: community.general
+    version: ">=8.0.0"
+  
+  # POSIX system modules
+  - name: ansible.posix
+    version: ">=1.5.0"
+  
+  # Network automation
+  - name: ansible.netcommon
+    version: ">=5.0.0"
+  
+  # Docker/container management
+  - name: community.docker
+    version: ">=3.4.0"

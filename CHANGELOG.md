@@ -67,6 +67,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Web resources: 500m CPU, 2Gi RAM (requests)
 - Task resources: 500m CPU, 2Gi RAM (requests)
 
+## [1.3.0] - 2026-03-30
+
+### Added
+- **Execution Environment Management**: Complete automation for building and managing custom EEs
+  - New script: `manage_awx_ee.sh` - comprehensive EE lifecycle management
+  - Build custom EE images using ansible-builder
+  - Automatic loading to K3s containerd namespace
+  - AWX registration via REST API with Basic Authentication
+  - Batch processing from YAML definition files
+  - List, register, and delete operations for EE management
+- **Configuration-Driven Workflow**: YAML-based EE definitions for batch operations
+  - `ee-definitions.yaml` - template for defining multiple EEs
+  - `examples/ee-definitions-sample.yaml` - working examples
+  - Support for enabling/disabling individual EEs
+  - Organization assignment and metadata management
+- **Example Execution Environment Templates**:
+  - `examples/ee-minimal.yml` - minimal EE with only ansible-core
+  - `examples/ee-collections.yml` - EE with Ansible collections
+  - `examples/ee-python-deps.yml` - EE with Python packages (netmiko, requests)
+  - `examples/requirements.yml` - sample Galaxy collections requirements
+- **Comprehensive EE Management Documentation**:
+  - `EE_MANAGEMENT.md` - 500+ line guide covering all aspects
+  - Quick start guide with 4 common use cases
+  - Detailed execution-environment.yml structure reference
+  - Troubleshooting section with 7 common issues
+  - Best practices and advanced topics (CI/CD, offline builds, multi-arch)
+- **Enhanced Configuration**: Extended `awx.conf` with EE management settings
+  - AWX API endpoint and authentication configuration
+  - Container runtime selection (podman/docker)
+  - ansible-builder options (verbosity, cache control)
+  - K3s containerd namespace configuration
+  - Cleanup and pruning options
+
+### Features
+- **Multiple Operation Modes**:
+  - `--build`: Build single EE from execution-environment.yml
+  - `--register`: Register existing image in AWX
+  - `--delete`: Remove EE from AWX (optionally from K3s)
+  - `--list`: Display all registered EEs in table/JSON/YAML format
+  - `--build-all`: Batch process multiple EEs from definitions file
+  - `--validate-only`: Validate configurations without building
+- **Intelligent Validation**:
+  - YAML syntax validation for all configuration files
+  - RPM-based base image detection (prevents Debian/Ubuntu/Alpine errors)
+  - Image tag requirement checks
+  - File existence verification for referenced dependencies
+  - AWX API connectivity and authentication validation
+- **Non-Root User Fix**: Automatic environment configuration for EE builds
+  - Sets writable HOME, TMPDIR, and ANSIBLE_LOCAL_TEMP directories
+  - Prevents ansible-galaxy collection install failures
+  - Documented in repository memory and all example templates
+- **Flexible Output Formats**: List EEs in table, JSON, or YAML format
+- **K3s Integration**: Seamless import to K3s containerd namespace
+  - Automatic tarball export and import
+  - Optional cleanup of temporary files
+  - Optional pruning of source images after import
+- **Comprehensive Logging**: All operations logged to `/var/log/awx-ee-management.log`
+
+### Prerequisites
+- ansible-builder (pip3 install ansible-builder)
+- podman or docker for building container images
+- kubectl with K3s cluster access
+- ctr (containerd CLI) for image import
+- jq (recommended for JSON parsing)
+- Python 3.9+ for YAML processing
+
+### Documentation Updates
+- Updated README.md with EE management links and quick usage examples
+- Added EE_MANAGEMENT.md to documentation section
+- Repository memory entry for EE runtime gotchas (non-root HOME directory issue)
+
+### Configuration
+New variables in awx.conf:
+- `AWX_API_ENDPOINT`: AWX API URL (default: http://localhost:30080)
+- `AWX_API_USER`: API username (default: admin)
+- `AWX_API_PASSWORD`: API password (inherited from ADMIN_PASSWORD)
+- `EE_DEFAULT_ORGANIZATION`: Default organization ID (default: 1)
+- `EE_CONTAINER_RUNTIME`: podman or docker (default: podman)
+- `EE_BUILDER_VERBOSITY`: ansible-builder verbosity 0-3 (default: 0)
+- `EE_BUILDER_NO_CACHE`: Disable build cache (default: false)
+- `K3S_CONTAINERD_NAMESPACE`: K3s namespace (default: k8s.io)
+- `EE_DEFINITIONS_FILE`: Path to definitions YAML (default: ee-definitions.yaml)
+- `EE_CLEANUP_TARBALLS`: Remove temp tarballs (default: true)
+- `EE_PRUNE_SOURCE_IMAGES`: Remove source images after K3s import (default: false)
+- `EE_LOG_FILE`: Log file location (default: /var/log/awx-ee-management.log)
+
 ## [Unreleased]
 
 ### Planned Features
@@ -78,6 +164,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [ ] LoadBalancer service type option
 - [ ] Multiple namespace support
 - [ ] Helm chart deployment option
+- [ ] Private registry credential management for EEs
+- [ ] OAuth2 token authentication for AWX API
+- [ ] Multi-architecture EE builds (ARM64 support)
 
 ## [1.2.0] - 2026-02-18
 
