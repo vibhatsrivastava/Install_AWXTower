@@ -65,6 +65,12 @@ class Colors:
 class AWXCollectionsInstaller:
     """Manages Ansible collection installation in AWX execution environments"""
 
+    COLLECTIONS_PATH = "/tmp/ansible-collections"
+    TEMP_HOME = "/tmp/awx-home"
+    ANSIBLE_TMP_DIR = f"{TEMP_HOME}/.ansible/tmp"
+    ANSIBLE_CACHE_DIR = f"{TEMP_HOME}/.ansible/galaxy-cache"
+    TEMP_DIR = f"{TEMP_HOME}/tmp"
+
     def __init__(self, namespace: str = "awx", ee_image: Optional[str] = None, verbose: bool = False):
         """
         Initialize the installer.
@@ -78,6 +84,20 @@ class AWXCollectionsInstaller:
         self.ee_image = ee_image
         self.verbose = verbose
         self.temp_pod_name = "awx-collections-installer-temp"
+
+    def build_temp_pod_command(self) -> List[str]:
+        """Build the temporary pod startup command with writable Ansible paths."""
+        return [
+            "sh", "-c",
+            (
+                "mkdir -p "
+                f"{self.COLLECTIONS_PATH} "
+                f"{self.ANSIBLE_TMP_DIR} "
+                f"{self.ANSIBLE_CACHE_DIR} "
+                f"{self.TEMP_DIR} "
+                "&& sleep 3600"
+            )
+        ]
 
     def print_header(self, message: str):
         """Print section header"""
@@ -234,11 +254,29 @@ class AWXCollectionsInstaller:
                 "containers": [{
                     "name": "installer",
                     "image": self.ee_image,
-                    "command": ["sleep", "3600"],
-                    "env": [{
-                        "name": "ANSIBLE_COLLECTIONS_PATH",
-                        "value": "/tmp/ansible-collections:/usr/share/ansible/collections"
-                    }]
+                    "command": self.build_temp_pod_command(),
+                    "env": [
+                        {
+                            "name": "HOME",
+                            "value": self.TEMP_HOME
+                        },
+                        {
+                            "name": "TMPDIR",
+                            "value": self.TEMP_DIR
+                        },
+                        {
+                            "name": "ANSIBLE_LOCAL_TEMP",
+                            "value": self.ANSIBLE_TMP_DIR
+                        },
+                        {
+                            "name": "ANSIBLE_GALAXY_CACHE_DIR",
+                            "value": self.ANSIBLE_CACHE_DIR
+                        },
+                        {
+                            "name": "ANSIBLE_COLLECTIONS_PATH",
+                            "value": f"{self.COLLECTIONS_PATH}:/usr/share/ansible/collections"
+                        }
+                    ]
                 }],
                 "restartPolicy": "Never"
             }
@@ -319,7 +357,7 @@ class AWXCollectionsInstaller:
         galaxy_args.append("--force")
         
         # Add collections path
-        collections_path = "/tmp/ansible-collections"
+        collections_path = self.COLLECTIONS_PATH
         galaxy_args.extend(["-p", collections_path])
         
         # Add collections
@@ -405,7 +443,7 @@ class AWXCollectionsInstaller:
             return False
 
         # Build ansible-galaxy command
-        collections_path = "/tmp/ansible-collections"
+        collections_path = self.COLLECTIONS_PATH
         galaxy_args = ["collection", "install", "-r", "/tmp/requirements.yml", "-p", collections_path]
         if upgrade:
             galaxy_args.append("--upgrade")
