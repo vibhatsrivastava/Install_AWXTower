@@ -209,6 +209,105 @@ Login with:
 - Configure variables, limits, and verbosity
 - Save and launch!
 
+## Managing Ansible Collections
+
+Ansible collections are packages of modules, roles, and plugins used in playbooks. AWX requires collections to be installed in execution environments (container images that run your playbooks).
+
+### Quick Collection Installation (Dev/Testing Only)
+
+For development and testing, use the `install_awx_collections.py` script for temporary collection installation:
+
+```bash
+# Install single collection
+python3 install_awx_collections.py community.postgresql
+
+# Install multiple collections
+python3 install_awx_collections.py community.postgresql awx.awx ansible.posix
+
+# Install from requirements file
+python3 install_awx_collections.py -r collections-requirements.yml
+
+# List installed collections
+python3 install_awx_collections.py --list
+```
+
+**Important**: Collections installed this way are **ephemeral** and lost when execution environment pods restart. For production, build custom execution environments (see below).
+
+### Production Collection Installation
+
+For production environments, build custom execution environments with collections pre-installed:
+
+#### 1. Create `execution-environment.yml`:
+
+```yaml
+---
+version: 3
+
+images:
+  base_image:
+    name: quay.io/ansible/awx-ee:latest
+
+dependencies:
+  python:
+    - psycopg2-binary==2.9.9
+  
+  galaxy: |
+    collections:
+      - name: community.postgresql
+        version: "3.4.0"
+      - name: awx.awx
+        version: "23.3.1"
+      - name: community.general
+        version: ">=8.0.0"
+```
+
+#### 2. Build the Execution Environment:
+
+```bash
+# Install ansible-builder
+pip3 install ansible-builder
+
+# Build custom EE image
+ansible-builder build \
+  --tag my-registry.com/awx-ee-custom:1.0.0 \
+  --container-runtime docker
+
+# Push to registry
+docker push my-registry.com/awx-ee-custom:1.0.0
+```
+
+#### 3. Register in AWX:
+
+1. Go to **Administration** → **Execution Environments** → **Add**
+2. Fill in:
+   - **Name**: Custom EE (PostgreSQL + AWX)
+   - **Image**: `my-registry.com/awx-ee-custom:1.0.0`
+   - **Pull**: Always
+3. Save
+
+#### 4. Assign to Job Templates:
+
+Edit your job templates and select the custom execution environment from the **Execution Environment** dropdown.
+
+### Common Collections Examples
+
+| Collection | Purpose | Required Python Packages |
+|------------|---------|--------------------------|
+| `community.postgresql` | PostgreSQL automation | `psycopg2-binary` |
+| `awx.awx` | AWX self-management | `awxkit` |
+| `amazon.aws` | AWS automation | `boto3`, `botocore` |
+| `community.vmware` | VMware vSphere | `pyvmomi` |
+| `kubernetes.core` | Kubernetes management | `kubernetes` |
+| `ansible.posix` | POSIX utilities | (built-in) |
+| `community.general` | General utilities | (various) |
+
+### Additional Resources
+
+- **Detailed Guide**: See [PACKAGE_INSTALLATION.md](PACKAGE_INSTALLATION.md#ansible-collections-installation) for comprehensive documentation
+- **Example Collections File**: [collections-requirements.yml.example](collections-requirements.yml.example)
+- **Ansible Galaxy**: https://galaxy.ansible.com/ - Browse available collections
+- **ansible-builder Docs**: https://ansible-builder.readthedocs.io/ - EE building guide
+
 ## External Access
 
 The installation script automatically configures AWX for external access from other machines on your local network (LAN).
@@ -902,12 +1001,14 @@ This will:
 ### Main Scripts
 - **`install_awx.sh`** - Main AWX installation script (K3s + AWX Operator)
 - **`setup_nginx_proxy.sh`** - Optional Nginx reverse proxy setup for port-free access
+- **`install_awx_packages.py`** - Python package installer for AWX containers
 - **`awx.conf`** - Configuration template for customizing installation
 
 ### Documentation
 - **`README.md`** - This file - complete installation and usage guide
 - **`QUICKSTART.md`** - Step-by-step first-time user workflow
 - **`TROUBLESHOOTING.md`** - Common issues and debugging commands
+- **`PACKAGE_INSTALLATION.md`** - Guide for installing Python packages inside AWX containers
 - **`CHANGELOG.md`** - Version history and changes
 
 ### Quick Usage

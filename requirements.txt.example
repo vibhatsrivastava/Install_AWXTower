@@ -1,0 +1,42 @@
+# Example Python Package Requirements for AWX
+# Copy this to requirements.txt and customize as needed
+# Usage: python3 install_awx_packages.py -r requirements.txt
+
+# AWS SDK
+boto3>=1.26.0
+
+# Azure SDK
+azure-mgmt-compute>=30.0.0
+azure-mgmt-network>=23.0.0
+
+# Google Cloud SDK
+google-cloud-compute>=1.14.0
+
+# Additional Ansible Collections Dependencies
+ansible-pylibssh>=1.1.0
+pywinrm>=0.4.3
+
+# Network Automation
+netmiko>=4.2.0
+napalm>=4.1.0
+
+# VMware
+pyvmomi>=8.0.0
+
+# Monitoring & APM
+datadog>=0.47.0
+newrelic>=8.7.0
+
+# HTTP Requests
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Database Drivers
+psycopg2-binary>=2.9.0
+pymongo>=4.3.0
+redis>=4.5.0
+
+# Utilities
+jmespath>=1.0.1
+jinja2>=3.1.0
+pyyaml>=6.0.0

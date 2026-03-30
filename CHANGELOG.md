@@ -69,6 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed `install_awx_collections.py` failing in non-root AWX execution environment images by configuring a writable temporary home and Ansible cache/tmp directories inside the installer pod.
+
 ### Planned Features
 - [ ] External PostgreSQL database support
 - [ ] TLS/SSL certificate configuration

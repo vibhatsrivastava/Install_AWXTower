@@ -1,0 +1,290 @@
+---
+# Ansible Collections Requirements File
+# ======================================
+# This file defines Ansible collections to be installed in AWX execution
+# environments or via the install_awx_collections.py script.
+#
+# USAGE:
+#   1. Via install_awx_collections.py (transient, dev/testing only):
+#      python3 install_awx_collections.py -r collections-requirements.yml
+#
+#   2. In AWX Project (runtime download):
+#      Place this file at: <project-root>/collections/requirements.yml
+#      AWX will install collections before running jobs
+#
+#   3. In Execution Environment (permanent, recommended for production):
+#      Reference this file in execution-environment.yml:
+#      dependencies:
+#        galaxy: collections-requirements.yml
+#
+# For more information, see: PACKAGE_INSTALLATION.md
+
+collections:
+  # ============================================================================
+  # DATABASE MANAGEMENT
+  # ============================================================================
+  
+  # PostgreSQL database automation
+  - name: community.postgresql
+    version: "3.4.0"
+    # Modules: postgresql_db, postgresql_user, postgresql_query, postgresql_privs
+    # Requires: psycopg2-binary Python package
+  
+  # MySQL/MariaDB database automation
+  - name: community.mysql
+    version: "3.8.0"
+    # Modules: mysql_db, mysql_user, mysql_query, mysql_replication
+    # Requires: PyMySQL Python package
+  
+  # MongoDB database automation
+  - name: community.mongodb
+    version: "1.6.1"
+    # Modules: mongodb_user, mongodb_replication, mongodb_shard
+    # Requires: pymongo Python package
+
+  # ============================================================================
+  # AWX SELF-MANAGEMENT
+  # ============================================================================
+  
+  # AWX/Ansible Automation Platform configuration
+  - name: awx.awx
+    version: "23.3.1"
+    # Modules: organization, team, user, project, inventory, job_template
+    # Use for infrastructure-as-code AWX configuration
+    # Requires: awxkit Python package
+
+  # ============================================================================
+  # CLOUD PROVIDERS
+  # ============================================================================
+  
+  # Amazon Web Services (AWS)
+  - name: amazon.aws
+    version: ">=7.0.0,<8.0.0"
+    # Core AWS modules: ec2_instance, s3_bucket, rds_instance
+    # Requires: boto3, botocore Python packages
+  
+  - name: community.aws
+    version: ">=7.0.0,<8.0.0"
+    # Extended AWS modules: route53, elasticache, ecs
+    # Requires: boto3, botocore Python packages
+  
+  # Microsoft Azure
+  - name: azure.azcollection
+    version: ">=2.0.0,<3.0.0"
+    # Modules: azure_rm_virtualmachine, azure_rm_storageaccount
+    # Requires: Azure SDK packages (azure-mgmt-*)
+  
+  # Google Cloud Platform
+  - name: google.cloud
+    version: ">=1.0.0"
+    # Modules: gcp_compute_instance, gcp_storage_bucket
+    # Requires: google-auth, requests Python packages
+
+  # ============================================================================
+  # NETWORK AUTOMATION
+  # ============================================================================
+  
+  # Cisco IOS/IOS-XE
+  - name: cisco.ios
+    version: ">=5.0.0"
+    # Modules: ios_command, ios_config, ios_facts
+    # Requires: paramiko or ansible-pylibssh
+  
+  # Cisco NX-OS
+  - name: cisco.nxos
+    version: ">=5.0.0"
+    # Modules: nxos_command, nxos_config, nxos_facts
+  
+  # Arista EOS
+  - name: arista.eos
+    version: ">=6.0.0"
+    # Modules: eos_command, eos_config, eos_facts
+  
+  # Juniper JunOS
+  - name: junipernetworks.junos
+    version: ">=5.0.0"
+    # Modules: junos_command, junos_config, junos_facts
+
+  # ============================================================================
+  # VIRTUALIZATION & CONTAINERS
+  # ============================================================================
+  
+  # VMware vSphere
+  - name: community.vmware
+    version: ">=4.0.0"
+    # Modules: vmware_guest, vmware_datastore, vmware_cluster
+    # Requires: pyvmomi Python package
+  
+  # Docker
+  - name: community.docker
+    version: ">=3.0.0"
+    # Modules: docker_container, docker_image, docker_network
+    # Requires: docker Python package
+  
+  # Kubernetes
+  - name: kubernetes.core
+    version: ">=3.0.0"
+    # Modules: k8s, k8s_info, k8s_scale, helm
+    # Requires: kubernetes Python package
+
+  # ============================================================================
+  # OPERATING SYSTEMS
+  # ============================================================================
+  
+  # POSIX utilities (extended)
+  - name: ansible.posix
+    version: "1.5.4"
+    # Modules: mount, sysctl, at, firewalld, selinux
+    # Essential for Linux system administration
+  
+  # Windows management
+  - name: ansible.windows
+    version: ">=2.0.0"
+    # Modules: win_command, win_service, win_user, win_regedit
+    # Requires: pywinrm Python package
+  
+  - name: community.windows
+    version: ">=2.0.0"
+    # Extended Windows modules: win_psexec, win_scheduled_task
+
+  # ============================================================================
+  # GENERAL UTILITIES
+  # ============================================================================
+  
+  # General purpose modules
+  - name: community.general
+    version: ">=8.0.0"
+    # Hundreds of utility modules: archive, file operations, system info
+    # Widely used across many playbooks
+
+  # ============================================================================
+  # MONITORING & OBSERVABILITY
+  # ============================================================================
+  
+  # Grafana
+  - name: community.grafana
+    version: ">=1.0.0"
+    # Modules: grafana_dashboard, grafana_datasource
+  
+  # Prometheus
+  - name: prometheus.prometheus
+    version: ">=1.0.0"
+    # Modules: prometheus_target, prometheus_alert
+
+  # ============================================================================
+  # SECURITY & SECRETS MANAGEMENT
+  # ============================================================================
+  
+  # HashiCorp Vault
+  - name: community.hashi_vault
+    version: ">=6.0.0"
+    # Modules: vault_read, vault_write, vault_token_create
+  
+  # CyberArk
+  - name: cyberark.conjur
+    version: ">=1.0.0"
+    # Modules for CyberArk Conjur secret management
+
+  # ============================================================================
+  # PRIVATE/CUSTOM COLLECTIONS
+  # ============================================================================
+  
+  # Uncomment and customize for your organization's private collections
+  # - name: mycompany.custom_collection
+  #   version: "1.0.0"
+  #   source: https://automation-hub.mycompany.com/api/galaxy/content/published/
+
+# ============================================================================
+# VERSION PINNING STRATEGIES
+# ============================================================================
+#
+# EXACT VERSION (Recommended for Production):
+#   version: "3.4.0"
+#   - Ensures reproducible builds
+#   - No surprises from updates
+#   - Use for production environments
+#
+# SEMANTIC VERSION RANGE:
+#   version: ">=3.4.0,<4.0.0"
+#   - Allows bug fixes and minor updates
+#   - Good for development environments
+#   - Major version locked (no breaking changes)
+#
+# MINIMUM VERSION:
+#   version: ">=3.4.0"
+#   - Accept any version >= specified
+#   - Most flexible, but can introduce breaking changes
+#   - Use carefully, only in dev environments
+#
+# LATEST (NOT RECOMMENDED):
+#   # No version specified
+#   - Unpredictable behavior
+#   - Can break playbooks unexpectedly
+#   - Never use in production
+
+# ============================================================================
+# PYTHON PACKAGE DEPENDENCIES
+# ============================================================================
+#
+# Some collections require Python packages to be installed. When building
+# custom execution environments, add these to your execution-environment.yml:
+#
+# dependencies:
+#   python:
+#     - psycopg2-binary==2.9.9      # For community.postgresql
+#     - pymongo==4.6.0               # For community.mongodb
+#     - PyMySQL==1.1.0               # For community.mysql
+#     - boto3==1.28.85               # For amazon.aws, community.aws
+#     - botocore==1.31.85            # For amazon.aws, community.aws
+#     - pyvmomi==8.0.2.0             # For community.vmware
+#     - docker==7.0.0                # For community.docker
+#     - kubernetes==29.0.0           # For kubernetes.core
+#     - pywinrm==0.4.3               # For ansible.windows
+#     - awxkit                       # For awx.awx
+#
+# See requirements.txt.example for complete Python package list.
+
+# ============================================================================
+# SYSTEM PACKAGE DEPENDENCIES
+# ============================================================================
+#
+# Some collections require system packages. Add to execution-environment.yml:
+#
+# dependencies:
+#   system:
+#     - postgresql-client            # For community.postgresql testing
+#     - git                          # For SCM operations
+#     - rsync                        # For synchronize module
+#     - openssh-client               # For SSH operations
+#
+# System packages are installed with yum/dnf (RHEL/CentOS) or apt (Ubuntu)
+# depending on the base image.
+
+# ============================================================================
+# INSTALLATION VERIFICATION
+# ============================================================================
+#
+# After installing collections, verify with this playbook:
+#
+# ---
+# - name: Verify Collection Installation
+#   hosts: localhost
+#   gather_facts: false
+#   tasks:
+#     - name: List all installed collections
+#       ansible.builtin.command:
+#         cmd: ansible-galaxy collection list
+#       register: collections_output
+#     
+#     - name: Display collections
+#       ansible.builtin.debug:
+#         var: collections_output.stdout_lines
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+#
+# - Ansible Galaxy: https://galaxy.ansible.com/
+# - ansible-builder docs: https://ansible-builder.readthedocs.io/
+# - AWX Execution Environments: https://docs.ansible.com/automation-controller/latest/html/userguide/execution_environments.html
+# - Collection requirements.yml format: https://docs.ansible.com/ansible/latest/user_guide/collections_using.html#install-multiple-collections-with-a-requirements-file

@@ -136,6 +136,51 @@ AWX includes a demo project with sample playbooks:
 
 AWX will clone the repository. Wait for the status to show **Successful**.
 
+### Project Structure with Collections
+
+If your playbooks use collections such as `community.postgresql` or `awx.awx`, organize your Git repository like this:
+
+```text
+my-ansible-project/
+├── playbooks/
+│   ├── site.yml
+│   └── manage-awx.yml
+├── inventory/
+│   └── production.yml
+├── group_vars/
+│   └── all.yml
+└── collections/
+    └── requirements.yml
+```
+
+Example `collections/requirements.yml`:
+
+```yaml
+---
+collections:
+  - name: community.postgresql
+    version: "3.4.0"
+  - name: awx.awx
+    version: "23.3.1"
+```
+
+Example playbook using `community.postgresql`:
+
+```yaml
+---
+- name: Create PostgreSQL database
+  hosts: db_servers
+  become: true
+  tasks:
+    - name: Create application database
+      community.postgresql.postgresql_db:
+        name: myapp
+        encoding: UTF-8
+      become_user: postgres
+```
+
+For production, prefer putting these collections in a custom execution environment instead of downloading them on each job run. See [README.md](README.md#managing-ansible-collections) and [PACKAGE_INSTALLATION.md](PACKAGE_INSTALLATION.md#ansible-collections-installation).
+
 ---
 
 ## Step 6: Create a Job Template
@@ -151,8 +196,11 @@ Job Templates define what playbook to run and on which hosts.
    - **Project**: Demo Project (or your project)
    - **Playbook**: Select from dropdown (e.g., `hello_world.yml`)
    - **Credentials**: My SSH Key
+  - **Execution Environment**: Select your custom EE if the playbook uses additional collections
    - **Verbosity**: 0 (Normal)
 4. Click **Save**
+
+If your playbook uses `awx.awx`, `community.postgresql`, `amazon.aws`, or similar collections, make sure the selected execution environment includes them. Otherwise the job will fail with a "collection not found" error.
 
 ---
 
