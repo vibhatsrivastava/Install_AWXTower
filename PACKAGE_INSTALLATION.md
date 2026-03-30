@@ -13,6 +13,7 @@ This guide explains how to install Python packages inside running AWX containers
 - [Best Practices](#best-practices)
 - [Troubleshooting](#troubleshooting)
 - [Permanent Installation Methods](#permanent-installation-methods)
+- [Ansible Collections Installation](#ansible-collections-installation)
 
 ---
 
@@ -692,6 +693,673 @@ spec:
 | Custom Container Image | ✅ Permanent | Medium | 5-10 min | Production |
 | Custom Execution Environment | ✅ Permanent | Medium | 10-15 min | Production (Ansible-native) |
 | Init Container | ⚠️ Auto-reinstall | High | 2-5 min/restart | Special cases |
+
+---
+
+## Ansible Collections Installation
+
+This section explains how to install and manage Ansible collections in AWX environments. Collections are different from Python packages and require different installation approaches.
+
+### Table of Contents
+
+- [Collections vs Python Packages](#collections-vs-python-packages)
+- [Collection Installation Methods](#collection-installation-methods)
+- [Method 1: Custom Execution Environment (Recommended)](#method-1-custom-execution-environment-recommended)
+- [Method 2: Project Requirements File](#method-2-project-requirements-file)
+- [Method 3: Transient Installation](#method-3-transient-installation)
+- [Common Collections Examples](#common-collections-examples)
+- [Best Practices for Collections](#best-practices-for-collections)
+
+---
+
+### Collections vs Python Packages
+
+Understanding the difference between collections and Python packages is critical for AWX:
+
+| Aspect | Python Packages | Ansible Collections |
+|--------|----------------|---------------------|
+| **Where Installed** | AWX Web/Task pods | Execution Environment (EE) pods |
+| **Installation Tool** | `pip3 install` | `ansible-galaxy collection install` |
+| **Pod Lifecycle** | Web/Task pods persist | EE pods created per job |
+| **Primary Use** | AWX operations (API, UI) | Playbook execution |
+| **Persistence** | Until pod restart | Depends on EE image |
+| **Recommended Approach** | Transient OK for dev | Pre-build into EE image |
+
+**Key Insight**: Python packages run AWX itself (web interface, API, task scheduler). Collections run **inside your playbooks** during job execution. They must be present in the container image used to execute jobs.
+
+---
+
+### Collection Installation Methods
+
+Three primary methods for installing collections in AWX:
+
+| Method | Persistence | When to Use | Complexity | Rebuild Time |
+|--------|-------------|-------------|-----------|-------------|
+| **Custom EE** | ✅ Permanent | Production | Medium | 10-15 min |
+| **Project requirements.yml** | ⚠️ Runtime download | Shared collections | Low | Per job |
+| **Transient (script)** | ❌ Ephemeral | Dev/Testing only | Low | Instant |
+
+---
+
+### Method 1: Custom Execution Environment (Recommended)
+
+**Overview**: Build a custom container image with collections pre-installed using `ansible-builder`.
+
+**When to Use**:
+- ✅ Production deployments
+- ✅ Consistent collection versions across all jobs
+- ✅ Collections with system dependencies
+- ✅ Offline/air-gapped environments
+
+#### Step 1: Create Execution Environment Definition
+
+Create `execution-environment.yml`:
+
+```yaml
+---
+version: 3
+
+images:
+  base_image:
+    name: quay.io/ansible/awx-ee:latest
+
+dependencies:
+  # Python packages needed by playbooks
+  python:
+    - boto3==1.28.85
+    - psycopg2-binary==2.9.9
+    - netmiko==4.3.0
+  
+  # Ansible collections
+  galaxy: |
+    collections:
+      - name: community.postgresql
+        version: "3.4.0"
+      - name: awx.awx
+        version: "23.3.1"
+      - name: community.general
+        version: ">=8.0.0"
+      - name: ansible.posix
+        version: "1.5.4"
+  
+  # System packages (installed via package manager)
+  system:
+    - git
+    - rsync
+    - postgresql-client
+
+additional_build_steps:
+  prepend_galaxy:
+    - RUN pip3 install --upgrade pip setuptools
+  
+  append_final:
+    - RUN ansible-galaxy collection list
+```
+
+**Key Sections**:
+- `base_image`: Start from AWX's default EE or another base
+- `python`: Python packages available to playbooks
+- `galaxy`: Collections to include (supports version pinning)
+- `system`: OS packages (yum/apt packages)
+
+#### Step 2: Build the Execution Environment
+
+```bash
+# Install ansible-builder (if not already installed)
+pip3 install ansible-builder
+
+# Build the custom EE image
+ansible-builder build \
+  --tag my-registry.example.com/awx-ee-custom:1.0.0 \
+  --container-runtime docker \
+  --verbosity 3
+
+# Verify collections are included
+docker run --rm my-registry.example.com/awx-ee-custom:1.0.0 \
+  ansible-galaxy collection list
+```
+
+**Expected Output**:
+```
+# /usr/share/ansible/collections/ansible_collections
+Collection             Version
+---------------------- -------
+ansible.posix          1.5.4
+awx.awx                23.3.1
+community.general      8.6.0
+community.postgresql   3.4.0
+```
+
+#### Step 3: Push to Container Registry
+
+```bash
+# Login to your container registry
+docker login my-registry.example.com
+
+# Push the image
+docker push my-registry.example.com/awx-ee-custom:1.0.0
+
+# Tag as latest (optional)
+docker tag my-registry.example.com/awx-ee-custom:1.0.0 \
+           my-registry.example.com/awx-ee-custom:latest
+docker push my-registry.example.com/awx-ee-custom:latest
+```
+
+**Registry Options**:
+- Docker Hub: `docker.io/username/awx-ee-custom:1.0.0`
+- Quay.io: `quay.io/username/awx-ee-custom:1.0.0`
+- Private registry: `registry.company.com/awx-ee-custom:1.0.0`
+- Local K3s registry: Use `--load` flag instead of push
+
+#### Step 4: Register in AWX
+
+1. **Via Web UI**:
+   - Go to **Administration** → **Execution Environments**
+   - Click **Add**
+   - Fill in:
+     - **Name**: Custom EE (PostgreSQL + AWX)
+     - **Image**: `my-registry.example.com/awx-ee-custom:1.0.0`
+     - **Pull**: Always (or ifNotPresent for stable tags)
+   - Click **Save**
+
+2. **Via AWX API** (automation):
+   ```bash
+   curl -X POST https://awx.example.com/api/v2/execution_environments/ \
+     -H "Authorization: Bearer $AWX_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "Custom EE (PostgreSQL + AWX)",
+       "image": "my-registry.example.com/awx-ee-custom:1.0.0",
+       "pull": "always"
+     }'
+   ```
+
+#### Step 5: Assign to Job Templates
+
+1. Edit your Job Template
+2. Scroll to **Execution Environment** dropdown
+3. Select **Custom EE (PostgreSQL + AWX)**
+4. Save
+
+All jobs using this template will now use your custom EE with pre-installed collections.
+
+**Benefits**:
+- ✅ Collections available immediately (no download time)
+- ✅ Consistent versions across all job runs
+- ✅ Works offline/air-gapped
+- ✅ Can include system dependencies
+- ✅ Version controlled via Dockerfile-equivalent
+- ✅ Image can be tested before deployment
+
+---
+
+### Method 2: Project Requirements File
+
+**Overview**: Define collections in `collections/requirements.yml` within your Ansible project Git repository.
+
+**When to Use**:
+- ✅ Collections specific to one project
+- ✅ Rapid prototyping (no EE rebuild needed)
+- ✅ Collections without system dependencies
+- ⚠️ Acceptable to download collections at job runtime
+
+#### Step 1: Create Requirements File in Project
+
+In your Ansible project Git repository:
+
+```bash
+my-ansible-project/
+├── playbooks/
+│   └── site.yml
+├── roles/
+├── inventory/
+└── collections/
+    └── requirements.yml    # ← Create this file
+```
+
+**collections/requirements.yml**:
+```yaml
+---
+collections:
+  - name: community.postgresql
+    version: ">=3.4.0,<4.0.0"  # Semantic version range
+  
+  - name: awx.awx
+    version: "23.3.1"  # Exact version
+  
+  - name: community.general
+    source: https://galaxy.ansible.com  # Explicit source
+  
+  # From private Automation Hub
+  - name: company.custom_collection
+    source: https://automation-hub.company.com/api/galaxy/content/published/
+```
+
+#### Step 2: Configure AWX to Install Collections
+
+AWX automatically detects `collections/requirements.yml` and installs collections before running jobs.
+
+**Job Template Settings**:
+1. Edit Job Template
+2. Enable **Update Revision on Launch** in Project settings (ensures latest requirements.yml)
+3. Optionally increase **Job Timeout** to account for collection download time
+
+#### Step 3: Test Collection Installation
+
+Run a simple playbook that uses the collection:
+
+```yaml
+# playbooks/test-collections.yml
+---
+- name: Test Collection Installation
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Verify community.postgresql collection
+      ansible.builtin.debug:
+        msg: "Collection available"
+      check_mode: false
+    
+    - name: List installed collections
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection list
+      register: collections_list
+    
+    - name: Display collections
+      ansible.builtin.debug:
+        var: collections_list.stdout_lines
+```
+
+**Limitations**:
+- ⚠️ Collections downloaded every job run (adds 5-30 seconds)
+- ⚠️ Requires internet access (or private Automation Hub)
+- ⚠️ No caching between jobs
+- ⚠️ Potential version conflicts if EE has different versions
+- ⚠️ Can cause job failures if Galaxy is unreachable
+
+**Best Practice**: Use for project-specific collections. Put commonly used collections in custom EE (Method 1).
+
+---
+
+### Method 3: Transient Installation
+
+**Overview**: Install collections temporarily using `install_awx_collections.py` script (similar to Python package script).
+
+**When to Use**:
+- ✅ Development and testing
+- ✅ Quick proof-of-concept
+- ✅ Testing collection before adding to EE
+- ❌ **Never for production** (collections lost after EE pod restart)
+
+#### Installation
+
+```bash
+# Install single collection
+python3 install_awx_collections.py community.postgresql
+
+# Install multiple collections
+python3 install_awx_collections.py community.postgresql awx.awx ansible.posix
+
+# Install from requirements file
+python3 install_awx_collections.py -r collections-requirements.yml
+
+# Install in custom namespace
+python3 install_awx_collections.py -n production-awx community.postgresql
+
+# List installed collections
+python3 install_awx_collections.py --list
+
+# Show help
+python3 install_awx_collections.py --help
+```
+
+#### How It Works
+
+1. Script discovers the active execution environment image
+2. Creates a temporary EE pod for collection installation
+3. Executes `ansible-galaxy collection install` inside pod
+4. Configures `ANSIBLE_COLLECTIONS_PATH` for visibility
+
+**Critical Limitation**: Collections persist only until:
+- Execution environment pod restarts
+- AWX upgrade/rollout
+- Job completes and EE pod is destroyed
+
+**Use Case Example**:
+```bash
+# Test new collection version before building custom EE
+python3 install_awx_collections.py community.postgresql==3.5.0
+
+# Run test playbook in AWX UI
+# If successful, add to execution-environment.yml
+# Build permanent EE image
+```
+
+**Warning**: Do not rely on this for scheduled jobs or production workloads. Always transition to Method 1 (Custom EE) for production use.
+
+---
+
+### Common Collections Examples
+
+#### Example 1: PostgreSQL Database Management
+
+**Use Case**: Automate PostgreSQL database provisioning, user management, backups.
+
+**Collection**: `community.postgresql`
+
+**execution-environment.yml**:
+```yaml
+version: 3
+images:
+  base_image:
+    name: quay.io/ansible/awx-ee:latest
+
+dependencies:
+  python:
+    - psycopg2-binary==2.9.9  # Required by community.postgresql
+  
+  galaxy: |
+    collections:
+      - name: community.postgresql
+        version: "3.4.0"
+  
+  system:
+    - postgresql-client  # CLI tools for testing
+```
+
+**Sample Playbook**:
+```yaml
+---
+- name: Manage PostgreSQL Database
+  hosts: db_servers
+  become: true
+  tasks:
+    - name: Create application database
+      community.postgresql.postgresql_db:
+        name: myapp_production
+        encoding: UTF-8
+        lc_collate: en_US.UTF-8
+        lc_ctype: en_US.UTF-8
+        template: template0
+      become_user: postgres
+    
+    - name: Create database user
+      community.postgresql.postgresql_user:
+        name: myapp_user
+        password: "{{ db_password }}"  # From AWX credential
+        priv: "myapp_production:ALL"
+        role_attr_flags: NOSUPERUSER,NOCREATEDB
+      become_user: postgres
+    
+    - name: Grant privileges
+      community.postgresql.postgresql_privs:
+        database: myapp_production
+        roles: myapp_user
+        objs: ALL_IN_SCHEMA
+        privs: SELECT,INSERT,UPDATE,DELETE
+      become_user: postgres
+```
+
+**Additional Modules in Collection**:
+- `postgresql_db` - Database management
+- `postgresql_user` - User/role management
+- `postgresql_query` - Execute SQL queries
+- `postgresql_privs` - Privilege management
+- `postgresql_ext` - Extension management (PostGIS, uuid-ossp, etc.)
+- `postgresql_slot` - Replication slot management
+
+---
+
+#### Example 2: AWX Self-Management
+
+**Use Case**: Configure AWX itself via playbooks (infrastructure-as-code for AWX configuration).
+
+**Collection**: `awx.awx`
+
+**execution-environment.yml**:
+```yaml
+version: 3
+images:
+  base_image:
+    name: quay.io/ansible/awx-ee:latest
+
+dependencies:
+  python:
+    - awxkit  # AWX Python SDK (may already be in base image)
+  
+  galaxy: |
+    collections:
+      - name: awx.awx
+        version: "23.3.1"  # Match your AWX version
+```
+
+**Sample Playbook** (AWX Configuration as Code):
+```yaml
+---
+- name: Configure AWX via Automation
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    awx_host: "https://awx.example.com"
+    awx_username: admin
+    # Use AWX credential for password
+  
+  tasks:
+    - name: Create organization
+      awx.awx.organization:
+        name: "Engineering Team"
+        description: "Production automation for engineering"
+        state: present
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+    
+    - name: Create inventory
+      awx.awx.inventory:
+        name: "Production Servers"
+        organization: "Engineering Team"
+        state: present
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+    
+    - name: Add inventory host
+      awx.awx.host:
+        name: "web-server-01"
+        inventory: "Production Servers"
+        variables:
+          ansible_host: 192.168.1.100
+          ansible_user: ubuntu
+        state: present
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+    
+    - name: Create job template
+      awx.awx.job_template:
+        name: "Deploy Application"
+        job_type: run
+        inventory: "Production Servers"
+        project: "App Deployment"
+        playbook: "deploy.yml"
+        credentials:
+          - "SSH Key - Production"
+        state: present
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+```
+
+**Authentication Options**:
+
+1. **Via Credential** (Recommended):
+   ```yaml
+   - name: Configure AWX
+     awx.awx.organization:
+       # ... fields ...
+       controller_host: "{{ lookup('env', 'CONTROLLER_HOST') }}"
+       controller_username: "{{ lookup('env', 'CONTROLLER_USERNAME') }}"
+       controller_password: "{{ lookup('env', 'CONTROLLER_PASSWORD') }}"
+   ```
+   Create "Red Hat Ansible Automation Platform" credential type in AWX.
+
+2. **Via OAuth Token**:
+   ```yaml
+   controller_oauthtoken: "{{ awx_oauth_token }}"
+   ```
+
+**Use Cases**:
+- Bootstrap new AWX instance with standard configuration
+- Disaster recovery (restore AWX configuration from code)
+- Sync AWX configuration across dev/staging/prod
+- Automated team onboarding (create org/team/users/projects)
+
+**Available Modules in awx.awx Collection**:
+- `organization`, `team`, `user` - Identity management
+- `project`, `inventory`, `host`, `group` - Asset management
+- `credential`, `credential_type` - Credential management
+- `job_template`, `workflow_job_template` - Automation definitions
+- `job_launch`, `workflow_launch` - Job execution
+- `settings` - AWX system settings
+
+---
+
+### Best Practices for Collections
+
+#### 1. Version Pinning Strategy
+
+**Exact Versions (Recommended for Production)**:
+```yaml
+collections:
+  - name: community.postgresql
+    version: "3.4.0"  # Exact version
+```
+
+**Semantic Ranges (For Compatibility)**:
+```yaml
+collections:
+  - name: community.general
+    version: ">=8.0.0,<9.0.0"  # Allow minor updates
+```
+
+**When to Use Each**:
+- **Exact**: Production, compliance, reproducible builds
+- **Range**: Development, accepting bugfix updates
+- **Latest**: Never recommend (unpredictable)
+
+#### 2. Organize Collections by Purpose
+
+**Multiple Execution Environments**:
+```
+my-registry.com/
+├── awx-ee-base:1.0.0           # Minimal (ansible.builtin only)
+├── awx-ee-cloud:1.0.0          # AWS, Azure, GCP collections
+├── awx-ee-network:1.0.0        # Cisco, Juniper, Arista
+├── awx-ee-database:1.0.0       # PostgreSQL, MySQL, MongoDB
+└── awx-ee-all:1.0.0            # Everything (large image)
+```
+
+**Benefits**:
+- Smaller images (faster pulls)
+- Isolated dependency conflicts
+- Clear purpose per EE
+
+#### 3. Test Before Production
+
+**Testing Workflow**:
+```bash
+# 1. Test locally with ansible-navigator
+ansible-navigator run playbook.yml \
+  --execution-environment-image my-registry.com/awx-ee-custom:1.0.0
+
+# 2. Test in AWX dev environment
+# - Create new EE in AWX (dev namespace)
+# - Run test jobs
+
+# 3. Staging deployment
+# - Push :staging tag
+# - Test against production-like data
+
+# 4. Production rollout
+# - Tag as :1.0.0 and :latest
+# - Update job templates incrementally
+```
+
+#### 4. Document Collection Dependencies
+
+Create `README.md` in your execution environment repo:
+
+```markdown
+# Custom Execution Environment - Database Automation
+
+## Collections Included
+
+| Collection | Version | Purpose |
+|------------|---------|----------|
+| community.postgresql | 3.4.0 | PostgreSQL automation |
+| community.mysql | 3.8.0 | MySQL automation |
+| community.mongodb | 1.6.1 | MongoDB automation |
+
+## Python Dependencies
+
+- psycopg2-binary==2.9.9 (PostgreSQL driver)
+- pymongo==4.6.0 (MongoDB driver)
+- PyMySQL==1.1.0 (MySQL driver)
+
+## Build Instructions
+
+```bash
+ansible-builder build -t my-registry.com/awx-ee-database:1.0.0
+```
+
+## Last Updated
+
+2026-03-30 - Updated community.postgresql from 3.3.0 to 3.4.0
+```
+
+#### 5. Keep Collections Updated
+
+**Quarterly Review Process**:
+1. Check for collection updates: `ansible-galaxy collection list --format json`
+2. Review changelogs for breaking changes
+3. Test in non-production first
+4. Update execution-environment.yml
+5. Rebuild and redeploy EE
+
+**Monitoring for CVEs**:
+```bash
+# Use ansible-lint to scan for deprecated modules
+ansible-lint playbooks/
+
+# Check collection security advisories
+# Subscribe to: https://github.com/ansible-collections/<collection>/security
+```
+
+#### 6. Offline/Air-Gapped Environments
+
+**Pre-download Collections**:
+```bash
+# Download collection tarballs
+ansible-galaxy collection download community.postgresql -p ./offline-collections/
+
+# In air-gapped environment, install from tarball
+ansible-galaxy collection install ./offline-collections/community-postgresql-3.4.0.tar.gz
+```
+
+**Include in EE Build**:
+```yaml
+# execution-environment.yml
+additional_build_files:
+  - src: collections/
+    dest: configs/
+
+additional_build_steps:
+  append_final:
+    - COPY _build/configs/collections/*.tar.gz /tmp/
+    - RUN ansible-galaxy collection install /tmp/*.tar.gz
+```
 
 ---
 

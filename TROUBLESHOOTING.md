@@ -11,6 +11,7 @@ This guide covers common issues and their solutions when installing and running 
 - [Performance Issues](#performance-issues)
 - [Database Issues](#database-issues)
 - [Network Issues](#network-issues)
+- [Collection Issues](#collection-issues)
 - [Upgrade Issues](#upgrade-issues)
 
 ---
@@ -978,6 +979,187 @@ sudo iptables -L OUTPUT -n -v
 # Verify credentials in AWX UI
 # Resources → Credentials
 ```
+
+---
+
+## Collection Issues
+
+### Job fails with "couldn't resolve module/action"
+
+**Problem**: A playbook uses a module from a collection that is not available in the selected execution environment.
+
+**Symptoms**:
+```text
+ERROR! couldn't resolve module/action 'community.postgresql.postgresql_db'
+```
+
+or
+
+```text
+ERROR! the collection awx.awx was not found in
+```
+
+**Root Cause**: The required collection is missing from the execution environment image, or the job template is using the wrong execution environment.
+
+**Solution**:
+```bash
+# Check which execution environment the job template uses
+# In AWX UI: Templates -> Edit template -> Execution Environment
+
+# Verify the collection exists in the EE image locally
+docker run --rm my-registry.com/awx-ee-custom:1.0.0 \
+  ansible-galaxy collection list | grep community.postgresql
+
+# Or verify from a running pod
+kubectl exec -it deployment/awx-task -n awx -- \
+  ansible-galaxy collection list | grep awx.awx
+```
+
+**Fix Options**:
+1. Add the collection to `execution-environment.yml` and rebuild the image.
+2. Add `collections/requirements.yml` to the project repository for runtime installation.
+3. For temporary testing only, use `python3 install_awx_collections.py <collection>`.
+
+**Best Practice**: For production, install shared collections in a custom execution environment and assign that EE to the job template.
+
+---
+
+### Collection installed but module still fails
+
+**Problem**: The collection exists, but tasks still fail because required Python dependencies are missing.
+
+**Example**:
+```text
+fatal: [db-server]: FAILED! => {"msg": "Failed to import the required Python library (psycopg2)"}
+```
+
+**Root Cause**: Collections often depend on Python libraries that must also be present in the execution environment.
+
+**Common Mappings**:
+- `community.postgresql` -> `psycopg2-binary`
+- `awx.awx` -> `awxkit`
+- `amazon.aws` / `community.aws` -> `boto3`, `botocore`
+- `community.vmware` -> `pyvmomi`
+- `kubernetes.core` -> `kubernetes`
+
+**Solution**:
+```yaml
+# execution-environment.yml
+version: 3
+images:
+  base_image:
+    name: quay.io/ansible/awx-ee:latest
+
+dependencies:
+  python:
+    - psycopg2-binary==2.9.9
+    - awxkit
+  galaxy: |
+    collections:
+      - name: community.postgresql
+        version: "3.4.0"
+      - name: awx.awx
+        version: "23.3.1"
+```
+
+Rebuild and push the execution environment, then update the AWX job template to use the new image.
+
+---
+
+### Runtime collection download fails
+
+**Problem**: AWX project sync or job startup fails while installing collections from `collections/requirements.yml`.
+
+**Symptoms**:
+```text
+ERROR! Failed to download collection tar from 'default': <urlopen error timed out>
+```
+
+or
+
+```text
+ERROR! Unknown error when attempting to call Galaxy at 'https://galaxy.ansible.com/'
+```
+
+**Root Cause**:
+- No outbound internet access from the cluster
+- DNS resolution failure inside pods
+- Galaxy service timeout or rate limiting
+- Private Automation Hub URL misconfiguration
+
+**Solution**:
+```bash
+# Test outbound connectivity from AWX task pod
+kubectl exec -it deployment/awx-task -n awx -- \
+  curl -I https://galaxy.ansible.com/
+
+# Test DNS resolution
+kubectl exec -it deployment/awx-task -n awx -- \
+  getent hosts galaxy.ansible.com
+```
+
+**Fix Options**:
+1. Move collections into a custom execution environment to avoid runtime downloads.
+2. Configure access to a private Automation Hub mirror.
+3. Pre-download collection tarballs and install them during the EE build.
+
+**Air-Gapped Approach**:
+```bash
+ansible-galaxy collection download community.postgresql -p ./offline-collections/
+ansible-galaxy collection download awx.awx -p ./offline-collections/
+```
+
+Then copy the tarballs into the execution environment build context and install them during the image build.
+
+---
+
+### Transient collection installation disappears
+
+**Problem**: Collections installed with `install_awx_collections.py` worked once, then disappeared on the next job run.
+
+**Root Cause**: The script installs collections into a temporary execution environment pod. Those files are lost when the pod is deleted or recreated.
+
+**Solution**:
+```bash
+# Temporary reinstall for testing
+python3 install_awx_collections.py community.postgresql awx.awx
+
+# Permanent fix: build custom EE
+ansible-builder build \
+  --tag my-registry.com/awx-ee-custom:1.0.0 \
+  --container-runtime docker
+docker push my-registry.com/awx-ee-custom:1.0.0
+```
+
+**Decision Rule**:
+- Use `install_awx_collections.py` only for quick validation.
+- Use custom execution environments for anything scheduled, shared, or production-facing.
+
+---
+
+### Version conflict between project and execution environment
+
+**Problem**: The execution environment already includes one version of a collection, but the project `collections/requirements.yml` requests another.
+
+**Symptoms**:
+- Jobs behave differently across environments
+- Module arguments mismatch expected documentation
+- Runtime install overrides EE-installed collection unexpectedly
+
+**Solution**:
+```bash
+# Inspect versions in EE
+docker run --rm my-registry.com/awx-ee-custom:1.0.0 \
+  ansible-galaxy collection list | grep community.postgresql
+
+# Inspect project requirements
+grep -n "community.postgresql\|awx.awx" collections/requirements.yml
+```
+
+**Best Practice**:
+1. Keep shared collections pinned in the execution environment.
+2. Use `collections/requirements.yml` only for project-specific additions.
+3. Avoid specifying the same collection in both places unless versions are intentionally aligned.
 
 ---
 
