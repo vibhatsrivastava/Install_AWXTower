@@ -966,11 +966,11 @@ This will:
 - **`awx.conf`** - Configuration template for customizing installation
 
 ### Documentation
-- **`README.md`** - This file - complete installation and usage guide
-- **`QUICKSTART.md`** - Step-by-step first-time user workflow
-- **`EE_MANAGEMENT.md`** - Execution Environment build and management guide
-- **`TROUBLESHOOTING.md`** - Common issues and debugging commands
-- **`CHANGELOG.md`** - Version history and changes
+- **[`README.md`](README.md)** - This file - complete installation and usage guide
+- **[`QUICKSTART.md`](QUICKSTART.md)** - Step-by-step first-time user workflow
+- **[`EE_MANAGEMENT.md`](EE_MANAGEMENT.md)** - Execution Environment build and management guide
+- **[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)** - Common issues and debugging commands
+- **[`CHANGELOG.md`](CHANGELOG.md)** - Version history and changes
 
 ### Quick Usage
 ```bash
