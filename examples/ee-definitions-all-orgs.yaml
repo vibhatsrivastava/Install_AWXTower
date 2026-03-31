@@ -1,0 +1,93 @@
+---
+# AWX Execution Environment Definitions for All Organizations
+# This file defines EEs to be registered across multiple organizations
+# Usage: ./manage_awx_ee.sh --build-all --definitions examples/ee-definitions-all-orgs.yaml
+
+# Global defaults
+defaults:
+  container_runtime: podman
+  load_to_k3s: true
+  register_in_awx: true
+
+# Execution Environment definitions
+# Note: Each EE will be built once but registered separately for each organization
+execution_environments:
+  # Minimal EE for Organization 1
+  - name: "AWX EE Minimal - Default Org"
+    description: "Minimal execution environment with ansible-core for Default Organization"
+    ee_file: "examples/ee-minimal.yml"
+    image_tag: "awx-ee-minimal:latest"
+    organization: 1
+    enabled: true
+  
+  # Collections EE for Organization 1
+  - name: "AWX EE Collections - Default Org"
+    description: "EE with common collections for Default Organization"
+    ee_file: "examples/ee-collections.yml"
+    image_tag: "awx-ee-collections:latest"
+    organization: 1
+    enabled: true
+  
+  # Network Automation EE for Organization 1
+  - name: "AWX EE Network - Default Org"
+    description: "EE with network automation libraries for Default Organization"
+    ee_file: "examples/ee-python-deps.yml"
+    image_tag: "awx-ee-network:latest"
+    organization: 1
+    enabled: true
+
+  # Minimal EE for Organization 2 (reuses same image)
+  # Note: Build is skipped if image_tag already exists from previous definition
+  - name: "AWX EE Minimal - Org 2"
+    description: "Minimal execution environment for Organization 2"
+    ee_file: "examples/ee-minimal.yml"
+    image_tag: "awx-ee-minimal:latest"
+    organization: 2
+    enabled: true
+  
+  # Collections EE for Organization 2
+  - name: "AWX EE Collections - Org 2"
+    description: "EE with common collections for Organization 2"
+    ee_file: "examples/ee-collections.yml"
+    image_tag: "awx-ee-collections:latest"
+    organization: 2
+    enabled: true
+  
+  # Network Automation EE for Organization 2
+  - name: "AWX EE Network - Org 2"
+    description: "EE with network automation libraries for Organization 2"
+    ee_file: "examples/ee-python-deps.yml"
+    image_tag: "awx-ee-network:latest"
+    organization: 2
+    enabled: true
+
+  # Minimal EE for Organization 3 (add more as needed)
+  - name: "AWX EE Minimal - Org 3"
+    description: "Minimal execution environment for Organization 3"
+    ee_file: "examples/ee-minimal.yml"
+    image_tag: "awx-ee-minimal:latest"
+    organization: 3
+    enabled: true
+  
+  # Collections EE for Organization 3
+  - name: "AWX EE Collections - Org 3"
+    description: "EE with common collections for Organization 3"
+    ee_file: "examples/ee-collections.yml"
+    image_tag: "awx-ee-collections:latest"
+    organization: 3
+    enabled: true
+  
+  # Network Automation EE for Organization 3
+  - name: "AWX EE Network - Org 3"
+    description: "EE with network automation libraries for Organization 3"
+    ee_file: "examples/ee-python-deps.yml"
+    image_tag: "awx-ee-network:latest"
+    organization: 3
+    enabled: true
+
+# Instructions:
+# 1. First, get the list of all organizations from AWX
+# 2. Update this file to include entries for each organization
+# 3. The script will build each unique image_tag only once
+# 4. Each EE will be registered separately in its respective organization
+# 5. Run: source awx.conf && sudo -E ./manage_awx_ee.sh --build-all --definitions examples/ee-definitions-all-orgs.yaml
