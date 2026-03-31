@@ -668,16 +668,18 @@ build_ee_image() {
     print_step "Running: $build_cmd"
     
     # Execute build
-    if $VERBOSE; then
-        $build_cmd
+    local build_log="/tmp/awx-ee-build-$$.log"
+    if [[ "$VERBOSE" == "true" ]]; then
+        $build_cmd 2>&1 | tee "$build_log"
+        local build_result=${PIPESTATUS[0]}
     else
-        $build_cmd > /dev/null 2>&1
+        $build_cmd > "$build_log" 2>&1
+        local build_result=$?
     fi
-    
-    local build_result=$?
     
     if [[ $build_result -eq 0 ]]; then
         print_success "Build completed successfully"
+        rm -f "$build_log"
         
         # Verify image exists
         if $EE_CONTAINER_RUNTIME images "$image_tag" --format "{{.Repository}}:{{.Tag}}" | grep -q "$image_tag"; then
@@ -689,6 +691,11 @@ build_ee_image() {
         fi
     else
         print_error "Build failed with exit code: $build_result"
+        if [[ -f "$build_log" ]]; then
+            print_error "Last 30 lines of build output:"
+            tail -30 "$build_log" >&2
+            rm -f "$build_log"
+        fi
         return 1
     fi
 }
@@ -797,7 +804,7 @@ process_ee_definitions() {
     fi
     
     # Use Python to parse YAML and process each EE
-    python3 - "$definitions_file" <<'PYTHON_SCRIPT'
+    python3 - "$definitions_file" "$SCRIPT_DIR/$SCRIPT_NAME" <<'PYTHON_SCRIPT'
 import yaml
 import sys
 import subprocess
@@ -807,7 +814,7 @@ def run_command(cmd):
     result = subprocess.run(cmd, shell=True, capture_output=False)
     return result.returncode == 0
 
-def process_ee(ee_def, defaults):
+def process_ee(ee_def, defaults, script_path):
     """Process a single EE definition"""
     name = ee_def.get('name', 'Unnamed EE')
     enabled = ee_def.get('enabled', True)
@@ -829,9 +836,9 @@ def process_ee(ee_def, defaults):
         return False
     
     # Build command
-    build_cmd = f"bash -c 'source {sys.argv[0]} && build_ee_image \"{ee_file}\" \"{image_tag}\"'"
-    load_cmd = f"bash -c 'source {sys.argv[0]} && load_image_to_k3s \"{image_tag}\"'"
-    register_cmd = f"bash -c 'source {sys.argv[0]} && register_ee_in_awx \"{name}\" \"{image_tag}\" \"{description}\" \"{organization}\"'"
+    build_cmd = f"bash -c 'source {script_path} && build_ee_image \"{ee_file}\" \"{image_tag}\"'"
+    load_cmd = f"bash -c 'source {script_path} && load_image_to_k3s \"{image_tag}\"'"
+    register_cmd = f"bash -c 'source {script_path} && register_ee_in_awx \"{name}\" \"{image_tag}\" \"{description}\" \"{organization}\"'"
     
     success = True
     
@@ -863,6 +870,7 @@ try:
     with open(sys.argv[1], 'r') as f:
         data = yaml.safe_load(f)
     
+    script_path = sys.argv[2]
     defaults = data.get('defaults', {})
     ee_list = data.get('execution_environments', [])
     
@@ -874,7 +882,7 @@ try:
     failed_count = 0
     
     for ee_def in ee_list:
-        if process_ee(ee_def, defaults):
+        if process_ee(ee_def, defaults, script_path):
             success_count += 1
         else:
             failed_count += 1
@@ -1137,5 +1145,7 @@ main() {
     print_success "Operation completed successfully"
 }
 
-# Run main function with all arguments
-main "$@"
+# Run main function only if script is executed directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

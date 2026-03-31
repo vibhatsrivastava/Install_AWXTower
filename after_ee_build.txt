@@ -1,0 +1,21 @@
+podman save awx-ee-collections -o /tmp/awx-ee-collections.tar
+sudo ctr -n k8s.io images import /tmp/awx-ee-collections.tar
+sudo ctr -n k8s.io images ls | grep awx-ee
+
+
+
+########## SCRIPT ###########
+source awx.conf
+
+sudo -E ./manage_awx_ee.sh --register \
+  --name "AWX EE Collections - BLR" \
+  --image "localhost/awx-ee-collections:latest" \
+  --description "EE with common Ansible collections for BLR" \
+  --organization 2
+
+sudo -E ./manage_awx_ee.sh --register \
+  --name "AWX EE Collections - HYD" \
+  --image "localhost/awx-ee-collections:latest" \
+  --description "EE with common Ansible collections for HYD" \
+  --organization 3
+  ############################
