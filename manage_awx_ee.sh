@@ -17,6 +17,7 @@
 # Prerequisites:
 #   - AWX installed and running (via install_awx.sh)
 #   - ansible-builder installed (pip3 install ansible-builder)
+#     OR set ANSIBLE_BUILDER_VENV in awx.conf to point to a Python venv
 #   - podman or docker installed
 #   - kubectl with K3s access
 #   - ctr (containerd CLI) available
@@ -57,6 +58,11 @@ EE_CLEANUP_TARBALLS="${EE_CLEANUP_TARBALLS:-true}"
 EE_PRUNE_SOURCE_IMAGES="${EE_PRUNE_SOURCE_IMAGES:-false}"
 EE_BUILDER_VERBOSITY="${EE_BUILDER_VERBOSITY:-0}"
 EE_BUILDER_NO_CACHE="${EE_BUILDER_NO_CACHE:-false}"
+ANSIBLE_BUILDER_VENV="${ANSIBLE_BUILDER_VENV:-}"
+
+# Internal variables for venv
+ANSIBLE_BUILDER_CMD="ansible-builder"
+VENV_ACTIVATED=false
 
 # Operation flags
 OPERATION=""
@@ -261,6 +267,36 @@ EOF
 # Prerequisite Checks
 ################################################################################
 
+setup_ansible_builder_venv() {
+    # If ANSIBLE_BUILDER_VENV is set, check if it exists and configure paths
+    if [[ -n "$ANSIBLE_BUILDER_VENV" ]]; then
+        if [[ ! -d "$ANSIBLE_BUILDER_VENV" ]]; then
+            print_warning "Virtual environment not found: $ANSIBLE_BUILDER_VENV"
+            return 1
+        fi
+        
+        # Check if activate script exists
+        if [[ ! -f "$ANSIBLE_BUILDER_VENV/bin/activate" ]]; then
+            print_warning "Virtual environment activate script not found: $ANSIBLE_BUILDER_VENV/bin/activate"
+            return 1
+        fi
+        
+        # Check if ansible-builder exists in venv
+        if [[ ! -f "$ANSIBLE_BUILDER_VENV/bin/ansible-builder" ]]; then
+            print_warning "ansible-builder not found in virtual environment: $ANSIBLE_BUILDER_VENV"
+            return 1
+        fi
+        
+        # Set the ansible-builder command to use the venv version
+        ANSIBLE_BUILDER_CMD="$ANSIBLE_BUILDER_VENV/bin/ansible-builder"
+        VENV_ACTIVATED=true
+        print_info "Using ansible-builder from virtual environment: $ANSIBLE_BUILDER_VENV"
+        return 0
+    fi
+    
+    return 1
+}
+
 check_prerequisites() {
     print_header "Checking Prerequisites"
     
@@ -272,15 +308,31 @@ check_prerequisites() {
         exit 1
     fi
     
+    # Try to setup virtual environment first
+    setup_ansible_builder_venv
+    
     # Check ansible-builder
     print_step "Checking ansible-builder..."
-    if ! command -v ansible-builder &> /dev/null; then
-        print_error "ansible-builder not found"
-        print_info "Install with: pip3 install ansible-builder"
-        missing_deps+=("ansible-builder")
-    else
+    if [[ "$VENV_ACTIVATED" == "true" ]]; then
+        # Check venv version
+        if [[ -x "$ANSIBLE_BUILDER_CMD" ]]; then
+            local ab_version=$($ANSIBLE_BUILDER_CMD --version 2>&1 | head -n1 || echo "unknown")
+            print_success "ansible-builder found in venv: $ab_version"
+        else
+            print_error "ansible-builder not executable in venv"
+            missing_deps+=("ansible-builder")
+        fi
+    elif command -v ansible-builder &> /dev/null; then
+        # Found in system PATH
         local ab_version=$(ansible-builder --version 2>&1 | head -n1 || echo "unknown")
         print_success "ansible-builder found: $ab_version"
+        ANSIBLE_BUILDER_CMD="ansible-builder"
+    else
+        # Not found anywhere
+        print_error "ansible-builder not found"
+        print_info "Install with: pip3 install ansible-builder"
+        print_info "Or set ANSIBLE_BUILDER_VENV in awx.conf to point to your virtual environment"
+        missing_deps+=("ansible-builder")
     fi
     
     # Check container runtime
@@ -597,7 +649,7 @@ build_ee_image() {
     fi
     
     # Prepare build command
-    local build_cmd="ansible-builder build"
+    local build_cmd="$ANSIBLE_BUILDER_CMD build"
     build_cmd+=" --file $ee_file"
     build_cmd+=" --tag $image_tag"
     build_cmd+=" --container-runtime $EE_CONTAINER_RUNTIME"
